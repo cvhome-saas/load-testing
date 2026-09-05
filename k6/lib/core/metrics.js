@@ -47,10 +47,14 @@ export function journey(name, body) {
   return ok;
 }
 
-/** Standard handleSummary: text to stdout, JSON to results/<testid>.json. Scripts re-export it. */
+/**
+ * Standard handleSummary: text to stdout, and JSON to results/<TESTID>.json when bin/k6run set TESTID (it also
+ * creates results/). A bare `k6 run` of a script or archive gets the text only — k6 cannot create directories.
+ */
 export function handleSummary(data) {
-  const testid = (__ENV.TESTID || `k6-${Date.now()}`).replace(/[^A-Za-z0-9_.-]/g, '-');
   const out = { stdout: textSummary(data, { indent: '  ', enableColors: true }) };
-  out[`results/${testid}.json`] = JSON.stringify(data, null, 2);
+  if (__ENV.TESTID) {
+    out[`results/${__ENV.TESTID.replace(/[^A-Za-z0-9_.-]/g, '-')}.json`] = JSON.stringify(data, null, 2);
+  }
   return out;
 }

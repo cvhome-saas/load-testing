@@ -1,0 +1,78 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Code, packages, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: 2.2.0
+
+      - name: Install ShellCheck and actionlint
+        shell: bash
+        run: |
+          tools_dir="$RUNNER_TEMP/check-tools"
+          mkdir -p "$tools_dir"
+
+          shellcheck_archive="$RUNNER_TEMP/shellcheck.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$shellcheck_archive" \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz
+          echo "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6  $shellcheck_archive" | sha256sum --check
+          tar -xzf "$shellcheck_archive" -C "$tools_dir"
+          mv "$tools_dir/shellcheck-v0.11.0/shellcheck" "$tools_dir/shellcheck"
+
+          actionlint_archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$actionlint_archive" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $actionlint_archive" | sha256sum --check
+          tar -xzf "$actionlint_archive" -C "$tools_dir" actionlint
+
+          echo "$tools_dir" >> "$GITHUB_PATH"
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Check packages
+        run: npm run packages:check
+
+      - name: Check code
+        run: npm run code:check
+
+      - name: Build k6 archives (lcl target baked in)
+        run: npm run build
+
+      - name: Upload k6 archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: k6-archives
+          path: build/k6
+          if-no-files-found: error
+          retention-days: 14

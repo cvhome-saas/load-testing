@@ -9,16 +9,40 @@
   "rateLimitProfile": "test-stores",
   "hosts": { "*.spg-507f1f77.gateway.com": "127.0.0.1" },
   "stores": [
-    { "name": "org1-store1", "id": "65f023632bc46470c104b76f", "org": "21f023932bc66470c104b76f", "requireLogin": true,  "defaultLang": "ar" },
-    { "name": "org1-store2", "id": "65f023632bc46470c104b75f", "org": "21f023932bc66470c104b76f", "requireLogin": false, "defaultLang": "en" },
-    { "name": "org2-store1", "id": "65f020632bc46470c104b76f", "org": "352023632b046970c104b76f", "requireLogin": false, "defaultLang": "en" },
-    { "name": "org2-store2", "id": "65f023632bc26470c104b75f", "org": "352023632b046970c104b76f", "requireLogin": false, "defaultLang": "ar" }
+    {
+      "name": "org1-store1",
+      "id": "65f023632bc46470c104b76f",
+      "org": "21f023932bc66470c104b76f",
+      "requireLogin": true,
+      "defaultLang": "ar"
+    },
+    {
+      "name": "org1-store2",
+      "id": "65f023632bc46470c104b75f",
+      "org": "21f023932bc66470c104b76f",
+      "requireLogin": false,
+      "defaultLang": "en"
+    },
+    {
+      "name": "org2-store1",
+      "id": "65f020632bc46470c104b76f",
+      "org": "352023632b046970c104b76f",
+      "requireLogin": false,
+      "defaultLang": "en"
+    },
+    {
+      "name": "org2-store2",
+      "id": "65f023632bc26470c104b75f",
+      "org": "352023632b046970c104b76f",
+      "requireLogin": false,
+      "defaultLang": "ar"
+    }
   ],
   "accounts": {
-    "orgAdmin":      { "username": "org1-admin",           "password": "admin", "role": "ORG_ADMIN" },
-    "storeAdmin":    { "username": "org1-store1-admin",    "password": "admin", "role": "STORE_ADMIN" },
-    "storeModerator":{ "username": "org1-store1-moderator","password": "admin", "role": "STORE_MODERATOR" },
-    "superAdmin":    { "username": "super-admin",          "password": "admin", "role": "SUPER_ADMIN" },
-    "shopper":       { "username": "user", "password": "revo", "store": "org1-store1" }
+    "orgAdmin": { "username": "org1-admin", "password": "admin", "role": "ORG_ADMIN" },
+    "storeAdmin": { "username": "org1-store1-admin", "password": "admin", "role": "STORE_ADMIN" },
+    "storeModerator": { "username": "org1-store1-moderator", "password": "admin", "role": "STORE_MODERATOR" },
+    "superAdmin": { "username": "super-admin", "password": "admin", "role": "SUPER_ADMIN" },
+    "shopper": { "username": "user", "password": "revo", "store": "org1-store1" }
   }
 }

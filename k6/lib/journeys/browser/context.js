@@ -31,7 +31,7 @@ export async function withPage(name, fn) {
     console.warn(`browser journey ${name} failed at ${page.url()}: ${String(e && e.message ? e.message : e).split('\n')[0]}`);
     try {
       await page.screenshot({ path: `results/browser-${name}-${Date.now()}.png` });
-    } catch (ignored) {
+    } catch {
       // a closed page cannot be captured; the counter above is the record
     }
   } finally {

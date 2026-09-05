@@ -13,7 +13,7 @@ import { config } from '../lib/core/env.js';
 import { globalTags } from '../lib/core/tags.js';
 import { sloFor } from './thresholds.js';
 
-function closed(exec, peak, profile, k) {
+function closed(exec, peak, profile) {
   switch (profile) {
     case 'smoke':
       return { executor: 'per-vu-iterations', vus: 1, iterations: 1, maxDuration: '5m', exec };
@@ -30,13 +30,13 @@ function closed(exec, peak, profile, k) {
       return { executor: 'constant-vus', vus: peak, duration: env.DURATION, exec };
     case 'breakpoint':
       // closed models hide the knee (VUs slow down with the system); express breakpoints as a rate instead
-      return open(exec, Math.max(1, Math.ceil(peak / 2)), '1s', 'breakpoint', k);
+      return open(exec, Math.max(1, Math.ceil(peak / 2)), '1s', 'breakpoint');
     default:
       throw new Error(`unknown PROFILE ${profile}`);
   }
 }
 
-function open(exec, rate, unit, profile, k) {
+function open(exec, rate, unit, profile) {
   const perSecond = unit === '1s' ? rate : rate / 60;
   const pre = Math.max(5, Math.ceil(perSecond * 5));
   switch (profile) {
@@ -63,8 +63,8 @@ export function scenario(kind, exec, knobs) {
   const k = knobs || {};
   const profile = env.PROFILE;
   if (kind === 'once') return { executor: 'per-vu-iterations', vus: k.vus || 1, iterations: k.iterations || 1, maxDuration: k.maxDuration || '10m', exec };
-  if (kind === 'vus') return closed(exec, k.peak || env.PEAK_VUS, profile, k);
-  if (kind === 'rate') return open(exec, k.rate || env.RATE, k.unit || env.RATE_UNIT, profile, k);
+  if (kind === 'vus') return closed(exec, k.peak || env.PEAK_VUS, profile);
+  if (kind === 'rate') return open(exec, k.rate || env.RATE, k.unit || env.RATE_UNIT, profile);
   throw new Error(`unknown scenario kind ${kind}`);
 }
 

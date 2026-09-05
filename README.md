@@ -7,7 +7,7 @@ breaks: connection pools, request threads, caches, rate limiters, row locks.
 
 ## The platform in one picture
 
-```
+```text
 shopper ──► spg (Caddy, one per pod) ──► landing-ui (Next.js SSR)      http://<store>.spg-<pod>.<domain>/en
              │                        ├─► catalog   /catalog/api/…      products, categories, search
              │                        ├─► inventory /inventory/api/…    price + stock by sku
@@ -42,9 +42,33 @@ make help                                                # every target and ever
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
 Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
 
+## GitHub Actions
+
+`Check` runs for pull requests, pushes to `main`, and manual dispatches. It checks the shell and JSON files,
+audits the locked npm packages, runs ESLint, Prettier, Markdownlint, ShellCheck, and actionlint, resolves every
+k6 import with `make inspect`, and builds an archive for every test script. An archive bakes in the deployment
+file it was built for (`make build TARGET=<name>` writes `build/k6/<name>/…`; run one with
+`k6 run -e TARGET=<name> <archive>`) because `k6 archive` reads no shell environment at init. Use the same complete
+gate locally with `npm ci && npm test`; formatting fixes are available through `npm run format` and
+`npm run lint:fix`. `shellcheck` and `actionlint` are optional locally (`brew install shellcheck actionlint` on
+macOS): when a binary is missing the check prints a warning and passes; under `CI=true` it fails. CI installs
+checksum-pinned official binaries. Node 20.19 or newer (CI uses Node 24).
+
+`Run k6 tests` is manual-only. Choose `selftest`, `smoke`, or `all-smoke` from the Actions page. The workflow
+reads these optional GitHub Actions variables and secrets; an unset or empty value falls back to the selected
+`k6/config/env/<TARGET>.json` file or the default declared in `k6/lib/core/env.js`:
+
+| Actions value | Kind | Fallback |
+| --- | --- | --- |
+| `GATEWAY_URL`, `UAA_URL`, `POD_DOMAIN`, `POD_ID` | variable | selected target file |
+| `PROMETHEUS_URL` | variable | selected target file; only used when **Publish metrics** is enabled |
+| `K6_RUNNER` | variable | `ubuntu-latest`; use a self-hosted runner label for private/local URLs |
+| `SELLER_PASSWORD`, `SHOPPER_PASSWORD` | secret | selected target file |
+| `FIXTURE_PASSWORD` | secret | `K6-load-test-1` |
+
 ## How it is built
 
-```
+```text
 k6/config/env/<target>.json    a deployment: hosts, pod, seeded stores and accounts (lcl.json is committed; copy aws.example.json for the rest)
 k6/config/thresholds.js        the only place SLO numbers live — sloFor(layer, profile)
 k6/config/profiles.js          load shapes by PROFILE: scenario('vus'|'rate'|'once', exec, knobs), browserScenario(), build()
@@ -74,7 +98,7 @@ script that picks a journey and a profile.
 `make <layer>-<name>`; every one honours `PROFILE`, `TARGET`, `RUN_ID` and the knobs in `make knobs`.
 
 | layer | script | model | what it exercises | writes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | storefront | browse | closed (PEAK_VUS) | SSR home/category/product + the API reads behind them, some search | — |
 | storefront | search | open (RATE) | suggest, full-text with facets, sorted pages | — |
 | storefront | content | open | site, menus, banners, policies, faq, posts, layout | — |
@@ -106,17 +130,22 @@ numbers are for the local stack and should be tightened per target once a baseli
 
 ## Fixtures and data
 
-Write-side scripts declare `needs: ['store', 'catalog', 'sessions', 'shoppers']` and `setup()` provisions a
-`k6-<RUN_ID>` org and store through the public signup and the console API, waits for the pod to provision it, and
+Write-side scripts declare `needs: ['store', 'catalog', 'sessions', 'shoppers']` and `setup()` provisions the
+exact `k6-<RUN_ID>` org and store through the public signup and the console API, waits for the pod to provision it, and
 fills it with `FIXTURE_PRODUCTS` products carrying `FIXTURE_STOCK` units each. `RUN_ID` defaults to `local`, so the
 same store is found and reused run after run; `RUN_ID=fresh` makes a new one. The seeded demo stores are only ever
 read (except carts and shopper registrations). `make clean` removes everything named `k6-` (API pass, then
 `scripts/cleanup.sql` through the postgres container).
 
-The fixture store's host (`k6-local.spg-507f1f77.gateway.com`) is resolved by k6 through `options.hosts` from the
-deployment file, so no `/etc/hosts` change is needed for HTTP scripts. Chromium resolves DNS itself:
-`bin/k6run` passes `host-resolver-rules` through `K6_BROWSER_ARGS`; if a browser script cannot reach the fixture
-store, add one `/etc/hosts` line for it.
+Fixture store names never gain an automatic suffix: `RUN_ID=local` creates only `k6-local`, so the host is
+predictable. k6 resolves it without any system change: HTTP requests through `options.hosts` from the deployment
+file, Chromium through the same wildcard that `bin/k6run` passes in `K6_BROWSER_ARGS`. Add
+`127.0.0.1 k6-local.spg-507f1f77.gateway.com` to `../cvhome/extra/scripts/configure-domain.sh` only for your own
+browser and `curl`.
+
+`KEEP_FIXTURES=false` archives and deletes the store in `teardown()`, and a deleted store keeps its name, so the
+next run with the same `RUN_ID` stops until `make clean` has run its SQL pass (the API pass alone soft-deletes
+and leaves the name reserved).
 
 ## Metrics
 
@@ -131,8 +160,9 @@ write; the `_ms` names describe the local summary, not the Prometheus unit. Cust
 ## Prerequisites on the application side (not done here)
 
 | change | where in `../cvhome` | why |
-|---|---|---|
+| --- | --- | --- |
 | `lcl start -d --infra all` | — | Prometheus with the remote-write receiver, Grafana, the collector, Tempo |
+| add `127.0.0.1 k6-local.spg-507f1f77.gateway.com` | `extra/scripts/configure-domain.sh` | only for a human's browser and `curl`; k6 and its Chromium resolve it themselves |
 | turn `otel.sdk.disabled` off for the services under test | `lcl.yml` / service configs | otherwise Prometheus holds k6's metrics and none of the application's |
 | `management.metrics.enable.jvm: true` | `store-commons/autoconfigure/.../common-config.yml` | heap and GC drift during soak |
 | stop dropping `^tomcat.*` in `filter/drop_metrics` | `extra/monitoring/logging-otel-collector-config.yml` | request-thread saturation is a primary edge |
@@ -149,7 +179,8 @@ write; the `_ms` names describe the local summary, not the Prometheus unit. Cust
   422 at the cap as `plan_limit_hits`) and 50 orders a month; a long checkout run on the fixture store will meet
   that cap. It also refuses shopper self-registration, so registration and account tests use the seeded stores.
 - One writable store per org: the trial goes to the first store, later ones are blocked (402 on every write), and
-  a deleted store keeps its name. Fixtures move to `k6-<RUN_ID>-2`, `-3`… when that happens; `make clean` resets.
+  a deleted store keeps its name. Fixtures fail instead of inventing an unconfigured hostname when the exact
+  `k6-<RUN_ID>` store cannot be reused; `make clean` resets it.
 - The rate limiter is 1000/min under the `test-stores` profile locally; deployed targets keep 10/60/20 per minute,
   which `rateLimitProfile` in the deployment file switches the login-heavy scripts to.
 - The gateway keeps sessions in memory: restarting it invalidates every seller session; `setup()` logs in again on

@@ -28,5 +28,10 @@ if [ -n "$prom" ]; then
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$base/-/ready")
   [ "$code" = "200" ] && echo "✓ prometheus ready ($base)" || echo "! prometheus not reachable at $base — run lcl start -d --infra all, or NO_PROM=1"
 fi
-command -v k6 >/dev/null && echo "✓ $(k6 version | head -1)" || { echo "✗ k6 not installed"; ok=1; }
+if command -v k6 >/dev/null; then
+  echo "✓ $(k6 version | head -1)"
+else
+  echo "✗ k6 not installed"
+  ok=1
+fi
 exit $ok

@@ -7,7 +7,7 @@ scripts that put it under load. A family with no script is a gap; add the script
 ## Storefront (shopper, through spg)
 
 | family | client method | scripts |
-|---|---|---|
+| --- | --- | --- |
 | SSR pages: home, category, product, search, checkout, login, register, content, blog, help | `StorefrontPagesClient.*` | storefront/browse, storefront/search, storefront/soak, shopper/guest-checkout, browser/* |
 | catalog: category hierarchy, category by slug, manufacturers, listing (by category, by sku, sorted), product by slug, related, groups, search, suggest | `CatalogClient.categoryHierarchy … suggest` | storefront/browse, storefront/search, storefront/breakpoint, storefront/soak, mixed |
 | inventory: availability (GET and bulk POST) | `InventoryClient.availability`, `availabilityQuery` | storefront/browse, storefront/breakpoint |
@@ -21,7 +21,7 @@ scripts that put it under load. A family with no script is a gap; add the script
 ## Console (seller and platform admin, through store-core-gateway)
 
 | family | client method | scripts |
-|---|---|---|
+| --- | --- | --- |
 | gateway sign-in (authorize → uaa form → callback), session check, health | `core/session.js`, `GatewayClient.health` | platform/gateway-login, every admin script (session pool) |
 | tenancy stores: list, all, info, get, unique, themes, color themes, per pod | `TenancyClient.listStores … storesPerPod` | admin/store-reads, admin/platform-reads |
 | tenancy lifecycle: signup, create, suspend, resume, archive, delete, store pod | `TenancyClient.signup, createStore … storePod` | admin/store-lifecycle, fixtures |
@@ -40,7 +40,7 @@ scripts that put it under load. A family with no script is a gap; add the script
 ## Platform edges
 
 | family | where | scripts |
-|---|---|---|
+| --- | --- | --- |
 | uaa public: login settings, context, idps, jwks, openid configuration | `UaaClient` on `uaaEdge()` | platform/uaa-public |
 | the fixed-window rate limiter on `/login`, `/oauth2/token`, `/api/v1/public/**` | `platform/rateLimitProbe.js` | platform/rate-limit-probe |
 | spg domain lookup (known and unknown hosts) and merchant lookup-by-domain | `platform/spgDomainLookup.js`, `MerchantClient.lookupByDomain` | platform/spg-domain-lookup |
@@ -49,7 +49,7 @@ scripts that put it under load. A family with no script is a gap; add the script
 ## Browser
 
 | journey | page object | scripts |
-|---|---|---|
+| --- | --- | --- |
 | home → category → product → add to cart → drawer → checkout → order placed | `pages/storefront.js` | browser/shopper-checkout |
 | register → login → account | `pages/storefront.js` | browser/shopper-auth |
 | home, search, category, product (read-only, Web Vitals) | `pages/storefront.js` | browser/browse, mixed |

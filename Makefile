@@ -3,10 +3,12 @@
 #   make smoke                       make shopper-guest-checkout PROFILE=load RATE=60
 #   make all-smoke                   make browser-shopper-checkout K6_BROWSER_HEADLESS=false
 RUN := bin/k6run
+# bin/k6run defaults TARGET for runs; `build` needs it here too (an exported-but-empty TARGET counts as set)
+TARGET := $(if $(TARGET),$(TARGET),lcl)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect selftest smoke all-smoke fixtures clean prom-check \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
 help: ## targets and knobs
@@ -22,6 +24,15 @@ preflight: ## is the target up and answering
 
 inspect: ## parse every script without traffic
 	@for f in $(SCRIPTS); do printf '%-48s' "$$f"; k6 inspect "$$f" >/dev/null 2>/tmp/k6-inspect.err && echo ok || { echo FAIL; cat /tmp/k6-inspect.err; exit 1; }; done
+
+build: ## package every script as a self-contained k6 archive for TARGET (the env file is baked in)
+	@test -f "k6/config/env/$(TARGET).json" || { echo "no k6/config/env/$(TARGET).json"; exit 1; }
+	@set -e; for script in $(SCRIPTS); do \
+		relative=$${script#k6/scripts/}; archive=build/k6/$(TARGET)/$${relative%.js}.tar; \
+		mkdir -p "$$(dirname "$$archive")"; \
+		k6 archive --exclude-env-vars -e TARGET=$(TARGET) --archive-out "$$archive" "$$script"; \
+	done; echo "archives for TARGET=$(TARGET) under build/k6/$(TARGET)/ — run one with: k6 run -e TARGET=$(TARGET) <archive>"
+
 
 selftest: ## every client method once, with expect()
 	NO_PROM=1 $(RUN) k6/scripts/selftest.js

@@ -3,7 +3,7 @@
 # 2. SQL pass: rows no API deletes (orders, carts, shoppers, orgs), through the lcl postgres container.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$root"
+cd "$root" || exit
 NO_PROM=1 bin/k6run k6/scripts/cleanup.js || echo "! API pass failed (stack down?) — continuing with SQL"
 container="${PG_CONTAINER:-$(docker ps --format '{{.Names}}' | grep -E 'postgres' | head -1)}"
 if [ -z "$container" ]; then echo "! no postgres container found; skip SQL pass"; exit 0; fi

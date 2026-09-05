@@ -1,0 +1,33 @@
+{
+  "name": "@cvhome-saas/load-testing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "k6 performance and functional tests for cvhome",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "npm@10.9.2",
+  "scripts": {
+    "actions:check": "scripts/with-tool.sh actionlint",
+    "build": "make build",
+    "check": "npm run packages:check && npm run code:check && npm run build",
+    "code:check": "npm run lint && npm run format:check && npm run markdown:check && npm run shell:check && npm run actions:check && npm run inspect",
+    "format": "prettier --write package.json .prettierrc.json .markdownlint-cli2.jsonc eslint.config.mjs '.github/workflows/*.{yml,yaml}' 'k6/config/env/*.json'",
+    "format:check": "prettier --check package.json .prettierrc.json .markdownlint-cli2.jsonc eslint.config.mjs '.github/workflows/*.{yml,yaml}' 'k6/config/env/*.json'",
+    "inspect": "make inspect",
+    "lint": "eslint k6",
+    "lint:fix": "eslint k6 --fix",
+    "markdown:check": "markdownlint-cli2 README.md 'docs/**/*.md'",
+    "packages:check": "npm audit --audit-level=high",
+    "shell:check": "scripts/with-tool.sh shellcheck bin/k6run scripts/*.sh",
+    "test": "npm run check"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
+    "globals": "17.12.0",
+    "markdownlint-cli2": "0.23.2",
+    "prettier": "3.9.6"
+  }
+}

@@ -28,7 +28,7 @@ export const SCHEMA = {
   FIXTURE_PRODUCTS:  { default: 25,  type: 'number', doc: 'products (with inventory) in the k6- fixture store (a trial store allows 25)' },
   FIXTURE_STOCK:     { default: 10000000, type: 'number', doc: 'stock per fixture sku (never runs out)' },
   FIXTURE_PASSWORD:  { default: 'K6-load-test-1', doc: 'password of the fixture org admin and shoppers' },
-  KEEP_FIXTURES:     { default: true, type: 'boolean', doc: 'keep the k6- store after the run (reused next run); false archives + deletes it' },
+  KEEP_FIXTURES:     { default: true, type: 'boolean', doc: 'keep the k6- store (reused next run); false deletes it and burns its name until make clean' },
   LOG_FAILURES:      { default: false, type: 'boolean', doc: 'console.warn every unexpected status with its X-Trace-Id' },
   GATEWAY_URL:       { default: '',           doc: 'override deployment gatewayUrl' },
   UAA_URL:           { default: '',           doc: 'override deployment uaaUrl' },

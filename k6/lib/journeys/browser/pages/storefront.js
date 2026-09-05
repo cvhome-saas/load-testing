@@ -132,7 +132,7 @@ export class Storefront {
     await byRole(p, sel.register.submit).click();
     try {
       await this.expectUrl(new RegExp(`/${this.lang}/(login|customer|callback|$)`), 10000);
-    } catch (e) {
+    } catch {
       const alerts = await p.evaluate(() => Array.from(document.querySelectorAll('[role=alert]')).map((a) => a.textContent.trim()).join(' | '));
       throw new Error(`register did not leave the form${alerts ? `: ${alerts}` : ''}`);
     }

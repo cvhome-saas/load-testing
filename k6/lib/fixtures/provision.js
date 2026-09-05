@@ -3,7 +3,7 @@
  * Test data the write-side scripts need, provisioned once in setup() and handed to every VU as `data.fixtures`.
  *
  *   needs: ['sessions']   seller sessions for the seeded accounts (SESSION_POOL of them)
- *   needs: ['store']      a k6-<RUN_ID> org + store, provisioned through the public signup and the console API,
+ *   needs: ['store']      the k6-<RUN_ID> org + store, provisioned through the public signup and the console API,
  *                         polled until it is operable on its pod and answers on its own storefront host
  *   needs: ['catalog']    FIXTURE_CATEGORIES categories and FIXTURE_PRODUCTS products with FIXTURE_STOCK stock (implies store)
  *   needs: ['content']    two content pages on the fixture store (implies store)
@@ -22,10 +22,9 @@ import * as faker from '../../data/faker.js';
 
 const PREFIX = 'k6';
 
-function fixtureNames(suffix) {
+function fixtureNames() {
   const base = `${PREFIX}-${env.RUN_ID}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  const name = suffix > 1 ? `${base}-${suffix}` : base;
-  return { org: name, store: name, email: `${name}@load.test`, password: env.FIXTURE_PASSWORD };
+  return { org: base, store: base, email: `${base}@load.test`, password: env.FIXTURE_PASSWORD };
 }
 
 function expand(needs) {
@@ -37,9 +36,9 @@ function expand(needs) {
 // ── org + store ──────────────────────────────────────────────────────────────
 //
 // One writable store per org: the org's trial is granted to its first store, and any later store is PENDING
-// (unpaid) and refused every write with 402 BILLING.STORE.SUSPENDED. A deleted store also keeps its name. So the
-// fixture is an (org, store) pair named k6-<RUN_ID>[-n]: reuse the pair whose store is live, otherwise move to
-// the next n and sign a fresh org up.
+// (unpaid) and refused every write with 402 BILLING.STORE.SUSPENDED. A deleted store also keeps its name. The
+// fixture is exactly the (org, store) pair named k6-<RUN_ID>: a predictable host that people and tools can be
+// told about in advance, so never invent a suffix when that exact name is unavailable — fail and say why.
 
 function orgSession(names) {
   const tenancy = new TenancyClient(platformEdge(null));
@@ -65,28 +64,30 @@ function writable(session, storeId) {
   return ent.status === 200 && !!ent.body && ent.body.operable === true;
 }
 
-function freeStoreName(tenancy, base) {
-  let name = base;
-  for (let i = 2; (tenancy.storeNameExists(name).body || {}).exists; i += 1) name = `${base}-s${i}`;
-  return name;
-}
-
 function ensureOrgAndStore() {
-  for (let n = 1; n <= 20; n += 1) {
-    const names = fixtureNames(n);
-    const session = orgSession(names);
-    const tenancy = new TenancyClient(platformEdge(session));
-    const stores = ownStores(tenancy);
-    const live = stores.find((s) => s.status !== 'DELETED' && s.status !== 'ARCHIVED' && writable(session, s.id));
-    if (live) return { session, names, storeId: live.id, storeName: live.name };
-    if (stores.length > 0) continue; // this org's trial went to a store that is gone or blocked: next org
-    const storeName = freeStoreName(tenancy, names.store); // store names are global, and a deleted one keeps its name
-    const created = tenancy.createStore(faker.storeDefinition(storeName, names.email));
-    if (!created.ok || !created.storeId) throw new Error(`fixtures: store create failed with ${created.status}: ${JSON.stringify(created.body)}`);
-    storesCreated.add(1);
-    return { session, names, storeId: String(created.storeId), storeName };
+  const names = fixtureNames();
+  const session = orgSession(names);
+  const tenancy = new TenancyClient(platformEdge(session));
+  const stores = ownStores(tenancy);
+  const store = stores.find((s) => s.name === names.store);
+
+  if (store && store.status !== 'DELETED' && store.status !== 'ARCHIVED' && writable(session, store.id)) {
+    return { session, names, storeId: store.id, storeName: store.name };
   }
-  throw new Error('fixtures: no free k6- org/store name in 20 attempts; run make clean');
+  if (store) {
+    throw new Error(`fixtures: ${names.store} is ${store.status} or not writable; run make clean, or choose a RUN_ID whose host is configured`);
+  }
+  if (stores.length > 0) {
+    throw new Error(`fixtures: ${names.org} already owns a different store; run make clean, or choose a RUN_ID whose host is configured`);
+  }
+  if ((tenancy.storeNameExists(names.store).body || {}).exists) {
+    throw new Error(`fixtures: store name ${names.store} is already reserved; run make clean, or choose a RUN_ID whose host is configured`);
+  }
+
+  const created = tenancy.createStore(faker.storeDefinition(names.store, names.email));
+  if (!created.ok || !created.storeId) throw new Error(`fixtures: store create failed with ${created.status}: ${JSON.stringify(created.body)}`);
+  storesCreated.add(1);
+  return { session, names, storeId: String(created.storeId), storeName: names.store };
 }
 
 function ensureStore() {

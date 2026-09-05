@@ -8,7 +8,7 @@ on (`docker-compose-lcl.yml`). Grafana is at `http://localhost:3000` (anonymous 
 ## Labels every sample carries
 
 | label | values | from |
-|---|---|---|
+| --- | --- | --- |
 | `testid` | `<script>-<profile>-<utc>` | `bin/k6run` (`TESTID` to pin one) |
 | `layer` | storefront · shopper · admin · platform · browser · mixed · all | script directory |
 | `target` | lcl · dev · … | `TARGET` |
@@ -63,7 +63,7 @@ Locally the services do not export anything until `otel.sdk.disabled` is off (se
 once they do, the collector exposes them on `otel-collector:8889` and these are the edges the suite is built to hit:
 
 | signal | edge |
-|---|---|
+| --- | --- |
 | `hikaricp_connections_pending` | database pool exhaustion (5 per service on lcl, 10 on Fargate) |
 | `tomcat_threads_busy` vs `tomcat_threads_config_max` | request-thread saturation (dropped by the collector filter by default) |
 | `jvm_memory_used_bytes` slope during soak | unbounded caches (catalog/checkout/payment `STORE` cache) |

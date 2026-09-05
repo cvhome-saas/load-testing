@@ -26,7 +26,7 @@ export function withQuery(url, params) {
 export function jsonOrNull(res) {
   try {
     return res.json();
-  } catch (e) {
+  } catch {
     return null;
   }
 }

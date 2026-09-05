@@ -10,11 +10,17 @@
   "rateLimitProfile": "default",
   "hosts": {},
   "stores": [
-    { "name": "org1-store1", "id": "65f023632bc46470c104b76f", "org": "21f023932bc66470c104b76f", "requireLogin": true, "defaultLang": "ar" }
+    {
+      "name": "org1-store1",
+      "id": "65f023632bc46470c104b76f",
+      "org": "21f023932bc66470c104b76f",
+      "requireLogin": true,
+      "defaultLang": "ar"
+    }
   ],
   "accounts": {
-    "orgAdmin":   { "username": "org1-admin",  "password": "", "role": "ORG_ADMIN" },
+    "orgAdmin": { "username": "org1-admin", "password": "", "role": "ORG_ADMIN" },
     "superAdmin": { "username": "super-admin", "password": "", "role": "SUPER_ADMIN" },
-    "shopper":    { "username": "user", "password": "", "store": "org1-store1" }
+    "shopper": { "username": "user", "password": "", "store": "org1-store1" }
   }
 }

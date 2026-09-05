@@ -4,7 +4,7 @@
  * On lcl (test-stores profile) the limit is 1000/min, so the probe goes to 20/s; on a deployed target 20/min.
  */
 import { config } from '../../lib/core/env.js';
-import { build, scenario } from '../../config/profiles.js';
+import { build } from '../../config/profiles.js';
 import { probePublicApi } from '../../lib/journeys/platform/rateLimitProbe.js';
 
 const perSecond = config.rateLimitProfile === 'test-stores' ? 25 : 1;

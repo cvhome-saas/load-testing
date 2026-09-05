@@ -1,0 +1,111 @@
+name: Run k6 tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite to run
+        required: true
+        default: selftest
+        type: choice
+        options:
+          - selftest
+          - smoke
+          - all-smoke
+      target:
+        description: Existing file under k6/config/env (lcl needs a self-hosted runner, see K6_RUNNER)
+        required: true
+        default: lcl
+        type: string
+      profile:
+        description: Load profile
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - load
+          - stress
+          - spike
+          - soak
+          - breakpoint
+      run_id:
+        description: Fixture namespace (creates k6-<run_id>)
+        required: true
+        default: local
+        type: string
+      publish_metrics:
+        description: Send metrics to PROMETHEUS_URL or the target config fallback
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ inputs.suite }} (${{ inputs.profile }})
+    runs-on: ${{ vars.K6_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    env:
+      TARGET: ${{ inputs.target }}
+      PROFILE: ${{ inputs.profile }}
+      RUN_ID: ${{ inputs.run_id }}
+      GATEWAY_URL: ${{ vars.GATEWAY_URL }}
+      UAA_URL: ${{ vars.UAA_URL }}
+      POD_ID: ${{ vars.POD_ID }}
+      POD_DOMAIN: ${{ vars.POD_DOMAIN }}
+      PROMETHEUS_URL: ${{ vars.PROMETHEUS_URL }}
+      SELLER_PASSWORD: ${{ secrets.SELLER_PASSWORD }}
+      SHOPPER_PASSWORD: ${{ secrets.SHOPPER_PASSWORD }}
+      FIXTURE_PASSWORD: ${{ secrets.FIXTURE_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up k6 and Chromium
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: 2.2.0
+          browser: true
+
+      - name: Refuse a target a hosted runner cannot reach
+        if: runner.environment == 'github-hosted' && inputs.target == 'lcl'
+        shell: bash
+        run: |
+          echo "target lcl is the developer's local stack; set the K6_RUNNER variable to a self-hosted runner label, or pick a reachable target" >&2
+          exit 2
+
+      - name: Validate scripts and target
+        shell: bash
+        run: |
+          case "$TARGET" in
+            ''|*[!A-Za-z0-9_-]*) echo "invalid TARGET: $TARGET" >&2; exit 2 ;;
+          esac
+          test -f "k6/config/env/${TARGET}.json"
+          make inspect
+
+      - name: Run selected suite
+        shell: bash
+        env:
+          SUITE: ${{ inputs.suite }}
+          PUBLISH_METRICS: ${{ inputs.publish_metrics }}
+        run: |
+          if [[ "$PUBLISH_METRICS" != "true" ]]; then export NO_PROM=1; fi
+          case "$SUITE" in
+            selftest) make selftest ;;
+            smoke) make smoke ;;
+            all-smoke) make all-smoke ;;
+            *) echo "unsupported suite: $SUITE" >&2; exit 2 ;;
+          esac
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: k6-results-${{ inputs.suite }}-${{ inputs.profile }}
+          path: results
+          if-no-files-found: warn
+          retention-days: 14
