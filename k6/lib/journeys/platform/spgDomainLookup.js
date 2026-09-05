@@ -21,13 +21,15 @@ export function hostsUnderTest(fixtureStore, unknownCount) {
 
 export function domainLookup(entry) {
   return journey('domain-lookup', () => {
-    const expected = entry.known ? 200 : 404;
+    // an unknown host is refused as a 404, or sent to the storefront's store-not-found page (307); both are "no store"
+    const expected = entry.known ? [200] : [307, 404];
     const res = http.get(`http://${entry.host}/${config.lang}`, {
+      redirects: 0,
       tags: { name: 'spg:domain-lookup', layer: 'platform', store: entry.known ? 'known' : 'unknown' },
-      responseCallback: http.expectedStatuses(200, 404),
+      responseCallback: http.expectedStatuses(200, 307, 404),
     });
     domainLookups.add(1, { known: String(entry.known) });
-    const ok = check(res, { [`spg:domain-lookup ${expected}`]: (r) => r.status === expected });
+    const ok = check(res, { [`spg:domain-lookup ${expected.join('|')}`]: (r) => expected.includes(r.status) });
     const direct = new MerchantClient(storefrontEdge(config.stores[0])).lookupByDomain(entry.host);
     return ok && direct.ok;
   });

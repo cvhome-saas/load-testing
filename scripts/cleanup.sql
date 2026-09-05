@@ -25,5 +25,7 @@ delete from merchant.merchant_store where store_merchant_id in (select id from t
 -- platform rows (order matters: subscription -> placement -> store -> org)
 delete from billing.store_subscription where id in (select id from tenancy.manager_store where name like 'k6-%');
 delete from pod_registry.pod_store_placement where store_id in (select id from tenancy.manager_store where name like 'k6-%');
+-- placements whose store no longer exists still count against the pod's capacity
+delete from pod_registry.pod_store_placement where store_id not in (select id from tenancy.manager_store);
 delete from tenancy.manager_store where name like 'k6-%';
 delete from tenancy.organization  where name like 'k6-%';

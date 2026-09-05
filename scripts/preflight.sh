@@ -22,7 +22,7 @@ probe "uaa public login settings" "$uaa/api/v1/public/login/settings" 200
 probe "storefront home" "$store/en" 200
 probe "catalog through spg" "$store/catalog/api/v1/category-hierarchy?count=1&page=0&store=$storeid&lang=en" 200
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 --resolve "k6-preflight.$pod:80:127.0.0.1" "http://k6-preflight.$pod/en")
-if [ "$code" = "404" ]; then echo "✓ spg answers an unknown sub-domain (404)"; else echo "! spg unknown sub-domain -> $code (want 404; only meaningful on lcl)"; fi
+case "$code" in 404|307) echo "✓ spg refuses an unknown sub-domain ($code)";; *) echo "! spg unknown sub-domain -> $code (want 404 or 307; only meaningful on lcl)";; esac
 if [ -n "$prom" ]; then
   base="${prom%/api/v1/write}"
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$base/-/ready")
