@@ -1,0 +1,19 @@
+{
+  "_source": "../cvhome/store-pod/catalog/catalog-service/src/main/resources/init-sql/stores/65f023632bc46470c104b76f (test-stores profile)",
+  "categories": ["men", "women", "kids", "accessories", "men-shoes", "men-tops", "men-bottoms", "women-shoes", "women-tops", "women-dresses", "kids-boys", "kids-girls"],
+  "productSlugs": [
+    "nike-zoomx-invincible-run-3", "nike-windrunner-jacket-men", "nike-one-leggings-women", "nike-tempo-running-shorts-women",
+    "nike-dna-basketball-shorts-men", "nike-club-fleece-hoodie-kids", "nike-brasilia-duffel-bag-medium", "nike-dri-fit-one-luxe-tank-women",
+    "adidas-essentials-fleece-hoodie-men", "adidas-tiro-23-training-pants", "adidas-classic-backpack", "adidas-trefoil-baseball-cap",
+    "adidas-adilette-comfort-slides", "adidas-essentials-tracksuit-kids", "gucci-ace-leather-sneaker-men", "gucci-gg-marmont-shoulder-bag",
+    "gucci-jordaan-loafer-women", "chanel-ballerinas", "chanel-classic-card-holder", "chanel-butterfly-sunglasses",
+    "hm-rib-knit-sweater-women", "hm-swim-shorts-men", "hm-5-pack-tshirts-kids", "zara-basic-polo-shirt-men",
+    "zara-contrast-sole-sneakers-men", "zara-basic-knit-sweater-kids"
+  ],
+  "skus": ["SKU-AD-CL-TPT03", "SKU-AD-CL-HOD21", "SKU-AD-BG-BPK09", "SKU-AD-AC-CAP33", "SKU-AD-AC-SCK39", "SKU-CH-AC-CRD12", "SKU-CH-AC-SUN06", "SKU-CH-BG-WOC36", "SKU-CH-AC-EAR42", "SKU-ZR-CL-DRS02", "SKU-HM-CL-SWT04"],
+  "productGroups": ["FEATURED_ITEMS", "NEWLY_ADDED", "RECOMMENDED"],
+  "searchTerms": ["nike", "adidas", "gucci", "hoodie", "shoes", "bag", "runing", "sneaker", "نايكي"],
+  "contentPages": ["about-us", "callus"],
+  "menus": ["MAIN", "FOOTER"],
+  "policies": ["TERMS", "PRIVACY"]
+}

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Runs one k6 script with the suite's conventions:
+#   testid tag, layer/target tags, Prometheus remote write, low-cardinality system tags, results dir, browser env.
+#
+#   bin/k6run k6/scripts/shopper/guest-checkout.js            PROFILE=load TARGET=lcl bin/k6run ...
+#   NO_PROM=1 bin/k6run ...                                   skip the remote-write output (results/*.json only)
+set -euo pipefail
+
+script="${1:?usage: bin/k6run <script.js> [k6 args...]}"; shift || true
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+
+export TARGET="${TARGET:-lcl}"
+export PROFILE="${PROFILE:-smoke}"
+export RUN_ID="${RUN_ID:-local}"                       # fixture namespace; RUN_ID=fresh -> a new one per run
+[ "$RUN_ID" = "fresh" ] && RUN_ID="$(date -u +%Y%m%d%H%M%S)" && export RUN_ID
+name="$(basename "$script" .js)"
+layer="$(basename "$(dirname "$script")")"; [ "$layer" = "scripts" ] && layer="all"
+export TESTID="${TESTID:-${name}-${PROFILE}-$(date -u +%Y%m%dT%H%M%SZ)}"
+
+prom_url="${PROMETHEUS_URL:-$(python3 -c "import json,sys; print(json.load(open('k6/config/env/${TARGET}.json')).get('prometheusUrl',''))")}"
+out=()
+if [ -z "${NO_PROM:-}" ] && [ -n "$prom_url" ]; then
+  export K6_PROMETHEUS_RW_SERVER_URL="$prom_url"
+  export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(95),p(99),avg,max,min}"
+  # stale markers end every series the moment the run ends, which empties "last value" panels; off unless asked
+  export K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-false}"
+  out=(--out experimental-prometheus-rw)
+fi
+
+# url is deliberately absent: cart codes and order ids in URLs would explode series cardinality.
+export K6_SYSTEM_TAGS="${K6_SYSTEM_TAGS:-proto,status,method,name,group,check,error,error_code,scenario,expected_response}"
+export K6_BROWSER_HEADLESS="${K6_BROWSER_HEADLESS:-true}"
+export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1}"
+
+mkdir -p results
+echo "k6run  script=$script  layer=$layer  profile=$PROFILE  target=$TARGET  run_id=$RUN_ID  testid=$TESTID ${out[*]+${out[*]}}"
+exec k6 run ${out[@]+"${out[@]}"} --tag "testid=$TESTID" --tag "layer=$layer" --tag "target=$TARGET" "$@" "$script"

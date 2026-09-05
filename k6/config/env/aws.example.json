@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy to k6/config/env/<env>.json (gitignored). Fill from `terraform output` in ../cvhome-platform: console_url -> gatewayUrl, urls.uaa -> uaaUrl, pods.<key>.domain -> podDomain, key -> podId. Seeded stores/accounts exist only when the flavour sets test_stores = true. Never write real passwords here: pass SELLER_PASSWORD / FIXTURE_PASSWORD env vars.",
+  "name": "dev",
+  "gatewayUrl": "https://<project>-dev.example.com",
+  "uaaUrl": "https://uaa.<project>-dev.example.com",
+  "podId": "<pod id>",
+  "podDomain": "<pod domain from terraform output pods>",
+  "lang": "en",
+  "prometheusUrl": "http://localhost:9090/api/v1/write",
+  "rateLimitProfile": "default",
+  "hosts": {},
+  "stores": [
+    { "name": "org1-store1", "id": "65f023632bc46470c104b76f", "org": "21f023932bc66470c104b76f", "requireLogin": true, "defaultLang": "ar" }
+  ],
+  "accounts": {
+    "orgAdmin":   { "username": "org1-admin",  "password": "", "role": "ORG_ADMIN" },
+    "superAdmin": { "username": "super-admin", "password": "", "role": "SUPER_ADMIN" },
+    "shopper":    { "username": "user", "password": "", "store": "org1-store1" }
+  }
+}

@@ -1,0 +1,17 @@
+# k6 output
+results/
+*.summary.json
+k6-summary.json
+
+# deployment files other than lcl hold real hostnames: copy k6/config/env/aws.example.json and keep them local
+k6/config/env/*.json
+!k6/config/env/lcl.json
+!k6/config/env/aws.example.json
+
+# browser artefacts
+screenshots/
+
+# tooling
+.idea/
+.DS_Store
+node_modules/

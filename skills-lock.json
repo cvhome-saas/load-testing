@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "k6": {
+      "source": "grafana/skills",
+      "sourceType": "github",
+      "skillPath": "skills/grafana-k6/k6/SKILL.md",
+      "computedHash": "8cf336115be1f86447a60693ea19e1ab21c133c07b1f8274f2d1331f2023b5d6"
+    }
+  }
+}
