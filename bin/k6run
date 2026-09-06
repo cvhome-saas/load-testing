@@ -4,6 +4,10 @@
 #
 #   bin/k6run k6/scripts/shopper/guest-checkout.js            PROFILE=load TARGET=lcl bin/k6run ...
 #   NO_PROM=1 bin/k6run ...                                   skip the remote-write output (results/*.json only)
+#   NO_GRAFANA=1 bin/k6run ...                                skip the Grafana run annotation
+#
+# Every run is also a Grafana annotation (tags k6, testid:<id>, profile:<p>, layer:<l>) from start to end, so the
+# run is a shaded region on every dashboard and the Load test vs app dashboard can be opened on it (`make dash`).
 set -euo pipefail
 
 script="${1:?usage: bin/k6run <script.js> [k6 args...]}"; shift || true
@@ -30,9 +34,26 @@ fi
 
 # url is deliberately absent: cart codes and order ids in URLs would explode series cardinality.
 export K6_SYSTEM_TAGS="${K6_SYSTEM_TAGS:-proto,status,method,name,group,check,error,error_code,scenario,expected_response}"
+
+grafana_url="${GRAFANA_URL:-$(python3 -c "import json,sys; print(json.load(open('k6/config/env/${TARGET}.json')).get('grafanaUrl',''))")}"
+annotation_id=""
+if [ -z "${NO_GRAFANA:-}" ] && [ -n "$grafana_url" ]; then
+  # Region annotation: created at start with only a start time, closed with timeEnd on exit. Grafana anonymous
+  # admin locally; deployed, pass GRAFANA_URL with credentials in the URL or set NO_GRAFANA=1.
+  annotation_id="$(curl -sf -X POST "$grafana_url/api/annotations" -H 'Content-Type: application/json' \
+    -d "{\"tags\":[\"k6\",\"testid:$TESTID\",\"profile:$PROFILE\",\"layer:$layer\"],\"text\":\"k6 $script ($PROFILE)\"}" 2>/dev/null \
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)"
+  [ -z "$annotation_id" ] && echo "k6run  grafana annotation skipped ($grafana_url not answering)" >&2
+fi
+close_annotation() {
+  [ -n "$annotation_id" ] && curl -sf -X PATCH "$grafana_url/api/annotations/$annotation_id" -H 'Content-Type: application/json' \
+    -d "{\"timeEnd\":$(( $(date +%s) * 1000 ))}" >/dev/null 2>&1 || true
+}
+trap close_annotation EXIT
 export K6_BROWSER_HEADLESS="${K6_BROWSER_HEADLESS:-true}"
 export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1}"
 
 mkdir -p results
 echo "k6run  script=$script  layer=$layer  profile=$PROFILE  target=$TARGET  run_id=$RUN_ID  testid=$TESTID ${out[*]+${out[*]}}"
-exec k6 run ${out[@]+"${out[@]}"} --tag "testid=$TESTID" --tag "layer=$layer" --tag "target=$TARGET" "$@" "$script"
+# Not exec: the EXIT trap has to run after k6 finishes to close the annotation region.
+k6 run ${out[@]+"${out[@]}"} --tag "testid=$TESTID" --tag "layer=$layer" --tag "target=$TARGET" "$@" "$script"

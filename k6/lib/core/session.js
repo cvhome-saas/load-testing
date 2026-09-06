@@ -90,3 +90,14 @@ export function sessionPool(accounts, count) {
 export function sessionFor(sessions, vuId) {
   return sessions[(vuId - 1) % sessions.length];
 }
+
+/**
+ * Pick this VU's session among those holding one of `roles`, falling back to the whole pool when none does.
+ * A journey plays one console screen, and a screen belongs to a role: the org admin's store screens read
+ * org-level tenancy and billing endpoints that a store admin or moderator is refused on. Handing those
+ * journeys a session of the wrong role produced 403s that counted as admin failures and hid the real threshold.
+ */
+export function sessionWithRole(sessions, vuId, roles) {
+  const fitting = sessions.filter((s) => roles.includes(s.role));
+  return sessionFor(fitting.length > 0 ? fitting : sessions, vuId);
+}

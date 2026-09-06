@@ -7,6 +7,7 @@
   "podDomain": "<pod domain from terraform output pods>",
   "lang": "en",
   "prometheusUrl": "http://localhost:9090/api/v1/write",
+  "grafanaUrl": "http://localhost:3000",
   "rateLimitProfile": "default",
   "hosts": {},
   "stores": [

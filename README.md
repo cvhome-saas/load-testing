@@ -42,6 +42,19 @@ make help                                                # every target and ever
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
 Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
 
+`lcl start` gives development numbers: every service is `gradle bootRun` on the host with no memory limit, and
+the storefront is `next dev`. For numbers that say something about a deployment, run the platform as its images,
+one container per service, 1 GB each — the same ports and hostnames, so `TARGET=lcl` stays as it is:
+
+```bash
+cd ../cvhome && lcl stop && extra/scripts/load-stack.sh build && extra/scripts/load-stack.sh up && cd -
+make smoke                                               # then any run above
+cd ../cvhome && extra/scripts/load-stack.sh stats        # memory and CPU per container during a run
+```
+
+What that stack is and what still differs from a deployment: `cvhome/extra/monitoring/docs/load-testing.md`,
+section "The load stack".
+
 ## GitHub Actions
 
 `Check` runs for pull requests, pushes to `main`, and manual dispatches. It checks the shell and JSON files,
@@ -163,10 +176,11 @@ write; the `_ms` names describe the local summary, not the Prometheus unit. Cust
 | --- | --- | --- |
 | `lcl start -d --infra all` | — | Prometheus with the remote-write receiver, Grafana, the collector, Tempo |
 | add `127.0.0.1 k6-local.spg-507f1f77.gateway.com` | `extra/scripts/configure-domain.sh` | only for a human's browser and `curl`; k6 and its Chromium resolve it themselves |
-| turn `otel.sdk.disabled` off for the services under test | `lcl.yml` / service configs | otherwise Prometheus holds k6's metrics and none of the application's |
-| `management.metrics.enable.jvm: true` | `store-commons/autoconfigure/.../common-config.yml` | heap and GC drift during soak |
-| stop dropping `^tomcat.*` in `filter/drop_metrics` | `extra/monitoring/logging-otel-collector-config.yml` | request-thread saturation is a primary edge |
+| start the stack with `OTEL_SDK_DISABLED=false` | — | otherwise Prometheus holds k6's metrics and none of the application's |
 | Hikari stays 5/1 for the first runs, then 10 | `lcl-config.yml` | comparability with the Fargate default |
+
+JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
+`../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.
 
 ## Known limits
 

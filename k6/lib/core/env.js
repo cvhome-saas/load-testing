@@ -35,6 +35,7 @@ export const SCHEMA = {
   POD_ID:            { default: '',           doc: 'override deployment podId' },
   POD_DOMAIN:        { default: '',           doc: 'override deployment podDomain' },
   PROMETHEUS_URL:    { default: '',           doc: 'override deployment prometheusUrl (remote-write endpoint)' },
+  GRAFANA_URL:       { default: '',           doc: 'override deployment grafanaUrl (run annotations, make dash)' },
   SELLER_PASSWORD:   { default: '',           doc: 'password for every seeded seller account (deployed targets)' },
   SHOPPER_PASSWORD:  { default: '',           doc: 'password of the seeded shopper (deployed targets)' },
 };
@@ -87,6 +88,7 @@ function load() {
     podDomain,
     lang: env.LANG_CODE || file.lang || 'en',
     prometheusUrl: env.PROMETHEUS_URL || file.prometheusUrl,
+    grafanaUrl: env.GRAFANA_URL || file.grafanaUrl,
     rateLimitProfile: file.rateLimitProfile || 'default',
     hosts: file.hosts || {},
     allStores: stores,

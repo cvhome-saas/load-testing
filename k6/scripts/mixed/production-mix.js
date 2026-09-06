@@ -10,7 +10,7 @@ import { storeFor } from '../../lib/core/env.js';
 import { build, scenario, browserScenario } from '../../config/profiles.js';
 import { mix } from '../../config/mix.js';
 import { withFixtures } from '../../lib/fixtures/provision.js';
-import { sessionFor } from '../../lib/core/session.js';
+import { sessionWithRole } from '../../lib/core/session.js';
 import { catalogFor } from '../../lib/journeys/shopper/data.js';
 import { browseHome, browseCategory, browseProduct } from '../../lib/journeys/shopper/browse.js';
 import { searchJourney } from '../../lib/journeys/shopper/search.js';
@@ -58,7 +58,7 @@ export function search(data) { const t = fixtureData(data); searchJourney(t.stor
 export function cart(data) { const t = fixtureData(data); cartJourney(t.store, t.catalog); }
 export function purchase(data) { const t = fixtureData(data); guestCheckout(t.store, t.catalog); }
 export function adminReads(data) {
-  const session = sessionFor(data.fixtures.sessions, execution.vu.idInTest);
+  const session = sessionWithRole(data.fixtures.sessions, execution.vu.idInTest, ['ORG_ADMIN']);
   if (Math.random() < 0.6) storeReads(session, storeFor(execution.vu.idInTest));
   else ordersList(data.fixtures.store.session, data.fixtures.store);
 }

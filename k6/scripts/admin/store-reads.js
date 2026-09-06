@@ -5,7 +5,7 @@ import execution from 'k6/execution';
 import { storeFor } from '../../lib/core/env.js';
 import { build, scenario } from '../../config/profiles.js';
 import { withFixtures } from '../../lib/fixtures/provision.js';
-import { sessionFor } from '../../lib/core/session.js';
+import { sessionWithRole } from '../../lib/core/session.js';
 import { storeReads } from '../../lib/journeys/admin/storeReads.js';
 
 export const options = build({ layer: 'admin', script: 'admin-store-reads', needs: ['sessions'], scenarios: { admins: scenario('vus', 'admins', { peak: 10 }) } });
@@ -13,7 +13,7 @@ export const { setup, teardown } = withFixtures(options);
 export { handleSummary } from '../../lib/core/metrics.js';
 
 export function admins(data) {
-  const session = sessionFor(data.fixtures.sessions, execution.vu.idInTest);
+  const session = sessionWithRole(data.fixtures.sessions, execution.vu.idInTest, ['ORG_ADMIN']);
   storeReads(session, storeFor(execution.vu.idInTest));
   sleep(2 + Math.random() * 3);
 }
