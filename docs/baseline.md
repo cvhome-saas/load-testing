@@ -24,3 +24,14 @@ _What ran out_ row to reach 80 % (request threads, db pool, cpu, gc) and at what
    _App 5xx / s_, and _Saturation_ (the first line to cross 0.8 and the VU/rate at that moment).
 3. One sentence of finding: which route, which statement or edge, from Service RED / Database & SQL /
    Service-to-Service at the run's time range.
+
+### Re-run after the cvhome performance fixes (2026-09-06, built storefront: `npm run build` + `node start.mjs` on 8110 in place of `next dev`)
+
+The fixes and their causes: `cvhome/extra/monitoring/docs/performance-improvements.md`.
+
+| script / profile | testid | k6 p95 (worst name) | app p95 | 5xx | first at 0.8 | finding |
+| --- | --- | --- | --- | --- | --- | --- |
+| storefront-browse / load, 30 VUs, DURATION=3m | `browse-load-20260906T124154Z` | `page:home` 91 ms (was 4.99 s on the dev server) | landing-ui render 91–98 ms; catalog, content, inventory, merchant 48 ms | 0 | none — 86 app req/s | 14,055 requests, 0 failed. catalog 5.7 SQL/request (was 21.3), `landing-ui → spg` failed 0 (was 4.2 %) |
+| shopper-guest-checkout / load, DURATION=3m | `guest-checkout-load-20260906T124807Z` | `checkout:checkout` 86 ms | checkout under 100 ms | 0 | none | 90 orders, 0 failed; checkout 5.7 SQL/request (was 11.2): the sequencer round-trips per insert are gone |
+| mixed-production-mix / load, DURATION=3m | `production-mix-load-20260906T125109Z` | `page:*` under 0.1 s (was ~4.4 s) | — | 0 | none — 46 app req/s | 3,918 requests, **0 failed on every layer** (admin was 2 %: the store-reads journey now takes an org-admin session), 31 orders; the 409s on `catalog … /category/{categoryId}` from concurrent edits remain, as expected |
+| storefront-breakpoint / breakpoint, MAX_RPS=600, RAMP=6m | `breakpoint-breakpoint-20260906T125416Z` | `catalog:product` 9.4 ms at 1,200 k6 req/s | catalog inside the 50 ms bucket throughout | 0 | none — CPU 71 % at peak, catalog pool 40 %, threads 1 % | 288,358 requests, 0 failed, 0 dropped: **no knee up to 1,540 app req/s**; CPU is the first resource to give out on this one-machine stack. Next: 2,000+ req/s with more pre-allocated VUs, and the write scripts |
