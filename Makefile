@@ -8,7 +8,7 @@ TARGET := $(if $(TARGET),$(TARGET),lcl)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
 help: ## targets and knobs
@@ -51,6 +51,11 @@ clean: ## remove k6- data (API pass, then SQL)
 
 prom-check: ## does Prometheus hold samples for TESTID
 	@curl -sG "$${PROM_QUERY:-http://localhost:9090}/api/v1/query" --data-urlencode "query=sum(k6_http_reqs_total{testid=\"$(TESTID)\"})" | python3 -m json.tool
+
+dash: ## open the "Load test vs app" Grafana dashboard for TESTID (or the newest run)
+	@url="$${GRAFANA_URL:-$$(python3 -c "import json; print(json.load(open('k6/config/env/$(TARGET).json')).get('grafanaUrl','http://localhost:3000'))")}"; \
+	 testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$(ls -t results/*.json 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null | sed 's/\.json$$//')"; \
+	 link="$$url/d/cvhome-load-test-vs-app?var-testid=$$testid&from=now-3h&to=now"; echo "$$link"; (command -v open >/dev/null && open "$$link") || true
 
 # one target per script: k6/scripts/<layer>/<name>.js -> make <layer>-<name>
 define SCRIPT_RULE

@@ -163,10 +163,11 @@ write; the `_ms` names describe the local summary, not the Prometheus unit. Cust
 | --- | --- | --- |
 | `lcl start -d --infra all` | — | Prometheus with the remote-write receiver, Grafana, the collector, Tempo |
 | add `127.0.0.1 k6-local.spg-507f1f77.gateway.com` | `extra/scripts/configure-domain.sh` | only for a human's browser and `curl`; k6 and its Chromium resolve it themselves |
-| turn `otel.sdk.disabled` off for the services under test | `lcl.yml` / service configs | otherwise Prometheus holds k6's metrics and none of the application's |
-| `management.metrics.enable.jvm: true` | `store-commons/autoconfigure/.../common-config.yml` | heap and GC drift during soak |
-| stop dropping `^tomcat.*` in `filter/drop_metrics` | `extra/monitoring/logging-otel-collector-config.yml` | request-thread saturation is a primary edge |
+| start the stack with `OTEL_SDK_DISABLED=false` | — | otherwise Prometheus holds k6's metrics and none of the application's |
 | Hikari stays 5/1 for the first runs, then 10 | `lcl-config.yml` | comparability with the Fargate default |
+
+JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
+`../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.
 
 ## Known limits
 

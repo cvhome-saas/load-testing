@@ -6,6 +6,7 @@
   "podDomain": "spg-507f1f77.gateway.com",
   "lang": "en",
   "prometheusUrl": "http://localhost:9090/api/v1/write",
+  "grafanaUrl": "http://localhost:3000",
   "rateLimitProfile": "test-stores",
   "hosts": { "*.spg-507f1f77.gateway.com": "127.0.0.1" },
   "stores": [
