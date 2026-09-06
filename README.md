@@ -42,6 +42,19 @@ make help                                                # every target and ever
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
 Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
 
+`lcl start` gives development numbers: every service is `gradle bootRun` on the host with no memory limit, and
+the storefront is `next dev`. For numbers that say something about a deployment, run the platform as its images,
+one container per service, 1 GB each — the same ports and hostnames, so `TARGET=lcl` stays as it is:
+
+```bash
+cd ../cvhome && lcl stop && extra/scripts/load-stack.sh build && extra/scripts/load-stack.sh up && cd -
+make smoke                                               # then any run above
+cd ../cvhome && extra/scripts/load-stack.sh stats        # memory and CPU per container during a run
+```
+
+What that stack is and what still differs from a deployment: `cvhome/extra/monitoring/docs/load-testing.md`,
+section "The load stack".
+
 ## GitHub Actions
 
 `Check` runs for pull requests, pushes to `main`, and manual dispatches. It checks the shell and JSON files,
