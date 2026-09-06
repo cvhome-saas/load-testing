@@ -6,7 +6,7 @@
 import { config, storeFor } from '../lib/core/env.js';
 import { build, scenario } from '../config/profiles.js';
 import { withFixtures } from '../lib/fixtures/provision.js';
-import { sessionFor } from '../lib/core/session.js';
+import { sessionWithRole } from '../lib/core/session.js';
 import { catalogFor } from '../lib/journeys/shopper/data.js';
 import { browseHome, browseCategory, browseProduct, browseContent } from '../lib/journeys/shopper/browse.js';
 import { searchJourney } from '../lib/journeys/shopper/search.js';
@@ -50,7 +50,7 @@ export function smoke(data) {
   shopperAccount(seeded, catalogFor(seeded, f), config.accounts.shopper);
   registerShopper(seeded); // a fresh store refuses self-registration until its realm settings allow it
 
-  const session = sessionFor(f.sessions, 1);
+  const session = sessionWithRole(f.sessions, 1, ['ORG_ADMIN']);
   storeReads(session, seeded);
   catalogEdit(fixture.session, fixture);
   contentEdit(fixture.session, fixture);
