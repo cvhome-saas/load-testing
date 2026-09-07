@@ -2,7 +2,7 @@
 # Is the target ready for a run? Exit 1 on the first hard failure; warnings do not fail.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET="${TARGET:-lcl}"
+TARGET="${TARGET:-local}"
 envfile="$root/k6/config/env/$TARGET.json"
 [ -f "$envfile" ] || { echo "✗ $envfile missing"; exit 1; }
 read -r gateway uaa pod store storeid prom < <(python3 - "$envfile" <<'PY'
@@ -26,7 +26,7 @@ case "$code" in 404|307) echo "✓ spg refuses an unknown sub-domain ($code)";; 
 if [ -n "$prom" ]; then
   base="${prom%/api/v1/write}"
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$base/-/ready")
-  [ "$code" = "200" ] && echo "✓ prometheus ready ($base)" || echo "! prometheus not reachable at $base — run lcl start -d --infra all, or NO_PROM=1"
+  [ "$code" = "200" ] && echo "✓ prometheus ready ($base)" || echo "! prometheus not reachable at $base — run make stack-up, or NO_PROM=1"
 fi
 if command -v k6 >/dev/null; then
   echo "✓ $(k6 version | head -1)"

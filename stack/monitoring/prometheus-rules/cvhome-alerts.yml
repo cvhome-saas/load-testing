@@ -1,0 +1,101 @@
+# Alert conditions. Locally there is no Alertmanager: firing alerts show on the Platform Overview dashboard through
+# the ALERTS series. Each rule's meaning and first steps: docs/monitoring/alerts.md.
+groups:
+  - name: cvhome-alerts
+    rules:
+      - alert: CvhomeAvailabilityBurnFast
+        expr: cvhome:slo_availability:burn_rate1h > 14.4 and cvhome:slo_availability:burn_rate5m > 14.4
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service_name }} is burning its availability budget 14x too fast"
+          description: "5xx ratio over 1h and 5m both exceed 1.44 %. At this rate the monthly error budget is gone in two days."
+      - alert: CvhomeAvailabilityBurnSlow
+        expr: cvhome:slo_availability:burn_rate6h > 6 and cvhome:slo_availability:burn_rate30m > 6
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service_name }} is burning its availability budget 6x too fast"
+          description: "5xx ratio over 6h and 30m both exceed 0.6 %."
+      - alert: CvhomeLatencyStorefrontSlo
+        expr: cvhome:slo_latency_storefront:good_ratio_rate5m < 0.95
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: fewer than 95 % of storefront reads finish under 500 ms"
+      - alert: CvhomeLatencyCheckoutSlo
+        expr: cvhome:slo_latency_checkout:good_ratio_rate5m < 0.95
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: fewer than 95 % of checkout writes finish under 2 s"
+      - alert: CvhomeS2sEdgeFailing
+        expr: cvhome:s2s_failed:ratio_rate5m > 0.05
+        for: 2m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.client }} → {{ $labels.server }}: more than 5 % of calls fail"
+      - alert: CvhomeHikariPending
+        expr: cvhome:hikari_pending:max > 0
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: threads are waiting for a database connection"
+          description: "The connection pool is exhausted; requests queue on it. Check pool size, slow statements, long transactions."
+      - alert: CvhomeHikariTimeouts
+        expr: cvhome:hikari_timeouts:rate5m > 0
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: requests timed out waiting for a database connection"
+      - alert: CvhomeTomcatSaturated
+        expr: cvhome:tomcat_threads:utilisation > 0.8
+        for: 2m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: more than 80 % of request threads are busy"
+      - alert: CvhomeGcPressure
+        expr: cvhome:jvm_gc_pause:ratio5m > 0.05 or cvhome:jvm_heap_after_gc:ratio > 0.85
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: garbage collection pressure"
+          description: "Either more than 5 % of time is spent in GC pauses or live heap after GC exceeds 85 % of the limit."
+      - alert: CvhomeSqlSlow
+        expr: cvhome:sql:p99_5m > 0.5
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: SQL p99 above 500 ms"
+      - alert: CvhomeServiceSilent
+        expr: cvhome:service_last_seen:seconds > 90
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.service_name }} has not reported metrics for 90 s"
+          description: "The service is down, or its OpenTelemetry SDK is disabled (OTEL_SDK_DISABLED)."
+      - alert: CvhomeOutboxFailed
+        expr: max by (service_name) (cvhome_outbox_records{status="FAILED"}) > 0
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: outbox records in FAILED state"
+      - alert: CvhomeOutboxStuck
+        expr: max by (service_name) (cvhome_outbox_oldest_pending_seconds) > 300
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "{{ $labels.service_name }}: an outbox record has been waiting for more than 5 minutes"

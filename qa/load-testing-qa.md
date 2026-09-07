@@ -7,7 +7,7 @@ land, and removing what the suite created.
 - **Scope** — the make targets, `bin/k6run`, `scripts/preflight.sh`, `scripts/cleanup.sh`, the `k6-<RUN_ID>`
   fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
 - **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
-  `cd ../cvhome && lcl start -d --infra all` (Prometheus, Grafana, collector, Tempo) with `OTEL_SDK_DISABLED=false`.
+  `make stack-up` (the platform's prebuilt images plus Prometheus, Grafana, collector, Tempo; telemetry on by default).
 - **Cases** — 9 (0 verified, 9 not verified)
 - **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
   reading a run; `docs/coverage.md` for which endpoint each client method hits.
@@ -18,10 +18,11 @@ where the bugs are).
 ## 00 — Before you start
 
 - `k6 version` prints 2.2.x; `node --version` is 20.19+; `npm ci` done in this repo.
-- For 02–04: the local stack is up (`lcl status` in `../cvhome` shows every service `up`), `lcl urls` matches
-  `k6/config/env/lcl.json` (gateway `:8000`, uaa `:8001`, pod domain `spg-507f1f77.gateway.com`). If a second
+- For 02–04: the load stack is up (`make stack-ps` shows every container running, `make stack-up` printed
+  "every Java service is UP"), and the ports match
+  `k6/config/env/local.json` (gateway `:8000`, uaa `:8001`, pod domain `spg-507f1f77.gateway.com`). If a second
   stack shifted the ports, edit a copy of the env file, not the committed one.
-- `TARGET` defaults to `lcl`, `PROFILE` to `smoke`, `RUN_ID` to `local` — so the fixture store is `k6-local`.
+- `TARGET` defaults to `local`, `PROFILE` to `smoke`, `RUN_ID` to `local` — so the fixture store is `k6-local`.
 
 ## 01 — validation without traffic
 
@@ -34,9 +35,9 @@ where the bugs are).
 
 ### 01.2 the full local gate matches CI [not verified]
 - Setup: `npm ci`.
-- Steps: `npm test` (or `scripts/verify.sh`); then `ls build/k6/lcl/`.
+- Steps: `npm test` (or `scripts/verify.sh`); then `ls build/k6/local/`.
 - Expect: npm audit at `high`, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
-  `make build` all pass; `build/k6/lcl/` holds one `.tar` archive per script mirroring `k6/scripts/`. A missing
+  `make build` all pass; `build/k6/local/` holds one `.tar` archive per script mirroring `k6/scripts/`. A missing
   `shellcheck`/`actionlint` prints `! <tool> not installed; skipping` and passes locally; with `CI=true` it fails.
   `scripts/verify.sh` ends with a receipt line and `git push` is then allowed for that exact tree.
 
@@ -44,11 +45,11 @@ where the bugs are).
 
 ### 02.1 make preflight against a running stack [not verified]
 - Setup: the stack up as in 00.
-- Steps: `make preflight`; then `lcl stop` one service (say `catalog`) in `../cvhome` and run it again; restart it.
+- Steps: `make preflight`; then stop one service (`docker compose -p cvhome-load stop catalog`) and run it again; start it.
 - Expect: with everything up, ✓ lines for gateway console, gateway health, uaa public login settings, storefront
   home, catalog through spg, "spg refuses an unknown sub-domain" (404 or 307), Prometheus ready, and the k6
   version; exit 0. With `catalog` down: the catalog probe prints `✗ … -> 000/502 (want 200)` and the script exits 1.
-  Without Prometheus: a `!` warning naming `lcl start -d --infra all` / `NO_PROM=1`, not a failure.
+  Without Prometheus: a `!` warning naming `make stack-up` / `NO_PROM=1`, not a failure.
 
 ## 03 — running against the stack
 
@@ -64,7 +65,7 @@ where the bugs are).
 - Steps: `make smoke`; watch the first `k6run  script=… testid=…` line; after it ends: `ls -t results/ | head -1`;
   `make prom-check TESTID=<that testid>`; `make dash` (or `make dash TESTID=<testid>`); in Grafana, open any
   dashboard over the last hour.
-- Expect: `bin/k6run` prints `script=k6/scripts/smoke.js layer=all profile=smoke target=lcl run_id=local
+- Expect: `bin/k6run` prints `script=k6/scripts/smoke.js layer=all profile=smoke target=local run_id=local
   testid=smoke-smoke-<UTC stamp>` and runs with `--out experimental-prometheus-rw`. Every journey runs one
   iteration; `setup()` provisions the `k6-local` org/store/catalogue (first run only, reused afterwards) and the
   run places orders on it. `results/<testid>.json` exists. `prom-check` returns a non-empty
@@ -108,11 +109,30 @@ where the bugs are).
 
 ## 99 — known gaps
 
-- `TARGET=lcl` numbers are dev-server numbers (`next dev`, Angular dev server, `gradle bootRun`); use
+- `TARGET=local` numbers are dev-server numbers (`next dev`, Angular dev server, `gradle bootRun`); use
   `extra/scripts/load-stack.sh` in `../cvhome` for numbers that say something about a deployment.
 - The fixture store is a trial store: 25 products and 50 orders a month; a long checkout run meets the cap
   (`plan_limit_hits`). Registration and account tests use the seeded stores because the trial store refuses
   shopper self-registration.
 - Product photos 404 locally (MinIO has no volume); `BROWSER_BLOCK_IMAGES=1` keeps them out of browser failure
   rates.
-- `Run k6 tests` with `target=lcl` needs a self-hosted runner (`K6_RUNNER`); a hosted runner refuses it.
+- `Run k6 tests` with `target=local` needs a self-hosted runner (`K6_RUNNER`); a hosted runner refuses it.
+
+## 05 — The load stack (`stack/`)
+
+### 05.1 `make stack-up` brings the platform up as its images [verified 2026-09-08, local images `latest`]
+- Setup: images exist locally (`docker images | grep store-`, from `./gradlew bootBuildImage` in `../cvhome`) or `LOAD_REGISTRY`/`LOAD_TAG` point at a registry; no `lcl` dev stack on the ports
+- Steps: `make stack-up`; `make stack-ps`; `make stack-stats`
+- Expect: "every Java service is UP" within `LOAD_WAIT` (600 s); 12 JVMs + console-ui + landing-ui + spg + postgres + minio + the monitoring five running; every container `/ 1GiB`; `http://localhost:3000` shows the platform overview with application metrics (telemetry is on by default)
+
+### 05.2 The suite runs against it unchanged [verified 2026-09-08: preflight all ✓, smoke 298 requests 0 failed 2 orders; the one red check is the known first `spg:domain-lookup`]
+- Steps: `make preflight`; `make smoke`
+- Expect: preflight all ✓ including Prometheus; smoke provisions `k6-local` and passes; `make dash` shows the run with the *What the application did* rows populated
+
+### 05.3 `make stack-down` keeps data, `make stack-down-hard` drops it [not verified]
+- Steps: `make stack-down` then `make stack-up`: the `k6-local` store still exists; `make stack-down-hard` then `make stack-up`: it does not
+- Expect: no `cvhome-load-*` containers after either down; volumes `cvhome-load_postgres-data` / `minio-data` only survive the soft down
+
+### 05.4 `make monitoring-check` guards the monitoring configuration [verified 2026-09-08: 12 dashboards, 46 rules, tests, collector, compose all pass]
+- Steps: edit a dashboard JSON by hand; `make monitoring-check`
+- Expect: `build-dashboards.mjs --check` fails naming the file; regenerating from the spec makes it pass; promtool rule tests and the collector `validate` pass

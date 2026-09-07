@@ -1,0 +1,13 @@
+# Grafana loads every dashboard under stack/monitoring/grafana/dashboards at start and re-reads the directory every
+# 10 s, so editing a JSON file is enough. Folders follow the directory names. UI edits are refused: the JSON in git is
+# the dashboard, and docs/monitoring/dashboards.md is generated from it.
+apiVersion: 1
+
+providers:
+  - name: cvhome
+    type: file
+    updateIntervalSeconds: 10
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

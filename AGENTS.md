@@ -8,7 +8,9 @@ k6 load, stress, soak, breakpoint and browser tests for **cvhome**. Sibling repo
 | `../cvhome-platform` | its AWS infrastructure: Terraform, ECS Fargate, one CloudFormation bootstrap | `CLAUDE.md`, `services.yaml`, `flavours.yaml` |
 
 `README.md` is the map of this repo; `docs/coverage.md` is the audit (every endpoint family → client method →
-script); `docs/prometheus.md` is where the numbers go. The k6 skill in `.claude/skills/k6/` is the authoring guide
+script); `docs/prometheus.md` is where the numbers go. `stack/` is the load stack (`docker-compose.yml`, `stack.sh`)
+and `stack/monitoring/` the collector, Prometheus rules, Loki, Tempo and Grafana dashboards that read it;
+`docs/monitoring/` explains them. This repo owns the platform's monitoring configuration; cvhome ships none. The k6 skill in `.claude/skills/k6/` is the authoring guide
 (examples, browser practices, validation rules).
 
 ## Architecture rules
@@ -20,7 +22,7 @@ script); `docs/prometheus.md` is where the numbers go. The k6 skill in `.claude/
   `request()` from `lib/core/http.js` with a stable `name` tag (`service:endpoint`, never an id in it) and the
   statuses it expects. Never call `k6/http` directly outside `lib/core`.
 - **Every knob is declared** in `lib/core/env.js` (`SCHEMA`): default, type, one-line doc. Scripts never read
-  `__ENV`. Deployment facts live in `k6/config/env/<TARGET>.json`; only `lcl.json` is committed.
+  `__ENV`. Deployment facts live in `k6/config/env/<TARGET>.json`; only `local.json` is committed.
 - **SLO numbers live in `k6/config/thresholds.js`**, load shapes in `k6/config/profiles.js`, traffic ratios in
   `k6/config/mix.js`. A script adds only journey-specific thresholds.
 - **Fixtures are declared, not scripted**: `build({ needs: ['store','catalog','sessions','shoppers'] })` and
@@ -35,8 +37,12 @@ script); `docs/prometheus.md` is where the numbers go. The k6 skill in `.claude/
 
 - Validate without traffic: `make inspect`. Validate against the stack: `make selftest` (every client method,
   `expect.soft`, one run reports every broken contract), then `PROFILE=smoke make <layer>-<name>`.
-- The stack: `lcl start -d --infra all` in `../cvhome`; `lcl status`, `lcl why <service>`. Read live ports from
-  `lcl urls` if a second stack shifted them. Never `kill` a supervised process.
+- The stack: `make stack-up` — `stack/docker-compose.yml`, the platform's **prebuilt** images (`./gradlew
+  bootBuildImage` in `../cvhome` is a pre-step, or `LOAD_REGISTRY`/`LOAD_TAG` from a registry; this repo never
+  builds an image), one container per service at `LOAD_MEM`, plus infra and monitoring, telemetry on. `make
+  stack-ps`, `make stack-logs S=<service>`, `make stack-stats`, `make stack-down[-hard]`. It takes the platform's
+  canonical ports; an `lcl` dev stack in `../cvhome` must be stopped first, and numbers from a dev stack are never
+  recorded as load numbers.
 - Facts that shaped the suite (verified against the app, keep them true): a store's storefront host is its name
   under the pod domain; store creation is asynchronous (poll `router/store-pod-by-store-id`); a trial store is
   capped at 25 products, has no payment configuration and refuses self-registration until configured; org1-store1
@@ -44,8 +50,11 @@ script); `docs/prometheus.md` is where the numbers go. The k6 skill in `.claude/
   `page`+`count`; search `sort` is upper-case (`RELEVANCE|NEWEST|OLDEST`), listing `sort` is a Pageable column
   (`dateAvailable,desc`); the rate limiter is 1000/min locally, 10/60/20 per minute deployed; gateway sessions are
   in memory.
-- App-side changes (OTEL on, JVM metrics, un-dropping tomcat metrics, Hikari sizing) belong to `../cvhome`; flag
-  them in the README's prerequisites table, do not make them here.
+- App-side changes (which metrics a JVM emits, Hikari defaults, an endpoint's shape) belong to `../cvhome`; flag
+  them in the README's prerequisites table, do not make them here. What the stack *does* with telemetry — the
+  collector pipeline, recording rules, dashboards — is this repo's: change `stack/monitoring/` and run
+  `node stack/monitoring/scripts/build-dashboards.mjs` + `dashboard-docs.mjs` so the JSON and `docs/monitoring/dashboards.md`
+  follow the spec (`make monitoring-check` fails otherwise).
 
 ## Working conventions (org standard — the same in every cvhome-saas repo)
 
@@ -77,7 +86,7 @@ this file is the repo's own rulebook, and the architecture rules above stay in f
   never made here.
 - **Nothing is pushed until the gates have passed locally.** `scripts/verify.sh` runs exactly what CI runs
   (`scripts/verify.steps.sh`: `npm ci`, then `npm test` = npm audit, ESLint, Prettier, Markdownlint, ShellCheck,
-  actionlint, `make inspect`, `make build`) and writes a receipt for the exact tree; `.githooks/pre-push` and
+  actionlint, `make inspect`, `make build`, then `make monitoring-check` when docker is running) and writes a receipt for the exact tree; `.githooks/pre-push` and
   `.claude/hooks/push-guard.mjs` refuse a push without it, a push to `main`, and `--no-verify`. k6 must be
   installed; shellcheck and actionlint are optional locally (`scripts/with-tool.sh`) and required under `CI=true`.
 - **`/go` ships the working tree** (commit → verify → push → PR into `main`, template filled, changelog
@@ -102,5 +111,6 @@ this file is the repo's own rulebook, and the architecture rules above stay in f
 - [ ] A new script has the generated-by comment on line 1, a `make <layer>-<name>` target (automatic from its
       path), a row in `README.md` → *Scripts*, and its endpoints in `docs/coverage.md`
 - [ ] A new knob is declared in `lib/core/env.js` and shows in `make knobs`
+- [ ] A dashboard change went through `dashboards.spec.mjs` and both generators; `make monitoring-check` green
 - [ ] Operator-visible behaviour has a case in `qa/load-testing-qa.md`, tagged honestly
 - [ ] Anything `../cvhome` or `../cvhome-platform` must change is named in the PR body under *Deviations*

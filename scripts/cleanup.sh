@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 1. API pass: archive + delete every k6- store the way a seller would.
-# 2. SQL pass: rows no API deletes (orders, carts, shoppers, orgs), through the lcl postgres container.
+# 2. SQL pass: rows no API deletes (orders, carts, shoppers, orgs), through the load stack's postgres container (cvhome-load-postgres-1; PG_CONTAINER overrides).
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root" || exit

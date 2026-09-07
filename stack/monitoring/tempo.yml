@@ -1,0 +1,27 @@
+server:
+  http_listen_port: 3200
+
+# Grafana's Tempo datasource streams search results over gRPC on the same port (streamingEnabled.search in
+# grafana-datasources.yml); without this Tempo answers the gRPC preface with HTTP/1.1 and every trace search
+# fails with "http2: frame too large".
+stream_over_http_enabled: true
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/blocks
+    wal:
+      path: /tmp/tempo/wal

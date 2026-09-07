@@ -1,0 +1,91 @@
+# promtool unit tests for the recording and alert rules. Synthetic series, fixed arithmetic:
+#   docker run --rm -v "$PWD/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/cvhome.test.yml
+rule_files:
+  - ../cvhome-recording.yml
+  - ../cvhome-alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  # catalog answers 2 % 5xx (1 in 50 requests per second); checkout answers none at all.
+  - interval: 15s
+    input_series:
+      - series: 'http_server_requests_seconds_count{service_name="catalog",method="GET",uri="/api/v2/products/search",status="200"}'
+        values: '0+735x40'
+      - series: 'http_server_requests_seconds_count{service_name="catalog",method="GET",uri="/api/v2/products/search",status="500"}'
+        values: '0+15x40'
+      - series: 'http_server_requests_seconds_count{service_name="checkout",method="POST",uri="/api/v1/cart",status="200"}'
+        values: '0+150x40'
+      - series: 'http_server_requests_seconds_count{service_name="catalog",method="GET",uri="/actuator/health",status="500"}'
+        values: '0+15x40'
+      - series: 'hikaricp_connections_active{service_name="catalog",pool="catalog"}'
+        values: '4x40'
+      - series: 'hikaricp_connections_max{service_name="catalog",pool="catalog"}'
+        values: '5x40'
+      - series: 'hikaricp_connections_pending{service_name="catalog",pool="catalog"}'
+        values: '0x20 2x20'
+      - series: 'tomcat_threads_busy{service_name="catalog"}'
+        values: '180x40'
+      - series: 'tomcat_threads_config_max{service_name="catalog"}'
+        values: '200x40'
+      - series: 'traces_service_graph_request_total{client="catalog",server="merchant",connection_type=""}'
+        values: '0+60x40'
+      - series: 'traces_service_graph_request_failed_total{client="catalog",server="merchant",connection_type=""}'
+        values: '0+6x40'
+      - series: 'traces_service_graph_request_total{client="checkout",server="inventory",connection_type=""}'
+        values: '0+30x40'
+    promql_expr_test:
+      - expr: cvhome:http_server_errors:ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="cvhome:http_server_errors:ratio_rate5m", service_name="catalog"}'
+            value: 0.02
+          - labels: '{__name__="cvhome:http_server_errors:ratio_rate5m", service_name="checkout"}'
+            value: 0
+      - expr: cvhome:slo_availability:burn_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="cvhome:slo_availability:burn_rate5m", service_name="catalog"}'
+            value: 20
+          - labels: '{__name__="cvhome:slo_availability:burn_rate5m", service_name="checkout"}'
+            value: 0
+      - expr: cvhome:hikari_pool:utilisation
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="cvhome:hikari_pool:utilisation", service_name="catalog"}'
+            value: 0.8
+      - expr: cvhome:tomcat_threads:utilisation
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="cvhome:tomcat_threads:utilisation", service_name="catalog"}'
+            value: 0.9
+      - expr: cvhome:s2s_failed:ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="cvhome:s2s_failed:ratio_rate5m", client="catalog",server="merchant"}'
+            value: 0.1
+          - labels: '{__name__="cvhome:s2s_failed:ratio_rate5m", client="checkout",server="inventory"}'
+            value: 0
+    alert_rule_test:
+      - alertname: CvhomeHikariPending
+        eval_time: 7m
+        exp_alerts:
+          - exp_labels: {service_name: catalog, severity: warn}
+            exp_annotations:
+              summary: "catalog: threads are waiting for a database connection"
+              description: "The connection pool is exhausted; requests queue on it. Check pool size, slow statements, long transactions."
+      - alertname: CvhomeHikariPending
+        eval_time: 3m
+        exp_alerts: []
+      - alertname: CvhomeTomcatSaturated
+        eval_time: 5m
+        exp_alerts:
+          - exp_labels: {service_name: catalog, severity: warn}
+            exp_annotations:
+              summary: "catalog: more than 80 % of request threads are busy"
+      - alertname: CvhomeS2sEdgeFailing
+        eval_time: 5m
+        exp_alerts:
+          - exp_labels: {client: catalog, server: merchant, severity: warn}
+            exp_annotations:
+              summary: "catalog → merchant: more than 5 % of calls fail"

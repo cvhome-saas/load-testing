@@ -10,7 +10,7 @@ them. Copy this skeleton:
 One paragraph: what this area owns.
 
 - **Scope** — ...
-- **Runs on** — how to bring it up (`lcl start -d --stack <name>` in cvhome; `make selftest`; `npx playwright test`; ...)
+- **Runs on** — how to bring it up (`make stack-up` here; `lcl start -d --stack <name>` in cvhome; `make selftest`; `npx playwright test`; ...)
 - **Cases** — N (x verified, y not verified)
 - **Also see** — sibling QA files this flow crosses into
 

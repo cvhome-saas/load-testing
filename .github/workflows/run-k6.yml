@@ -13,9 +13,9 @@ on:
           - smoke
           - all-smoke
       target:
-        description: Existing file under k6/config/env (lcl needs a self-hosted runner, see K6_RUNNER)
+        description: Existing file under k6/config/env (local needs a self-hosted runner, see K6_RUNNER)
         required: true
-        default: lcl
+        default: local
         type: string
       profile:
         description: Load profile
@@ -72,10 +72,10 @@ jobs:
           browser: true
 
       - name: Refuse a target a hosted runner cannot reach
-        if: runner.environment == 'github-hosted' && inputs.target == 'lcl'
+        if: runner.environment == 'github-hosted' && inputs.target == 'local'
         shell: bash
         run: |
-          echo "target lcl is the developer's local stack; set the K6_RUNNER variable to a self-hosted runner label, or pick a reachable target" >&2
+          echo "target local is the developer's local load stack; set the K6_RUNNER variable to a self-hosted runner label, or pick a reachable target" >&2
           exit 2
 
       - name: Validate scripts and target

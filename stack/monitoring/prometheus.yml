@@ -1,0 +1,18 @@
+# Prometheus holds every metric: the application's (scraped from the collector's exporter) and k6's (remote-written by
+# load-testing/bin/k6run). The rule files compute the SLIs once so dashboards and alerts read one series each;
+# docs/monitoring/kpis.md explains every rule.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: [ 'otel-collector:8889' ]
+    metric_relabel_configs:
+      # Instrumentation-scope bookkeeping the collector adds to every series; never queried.
+      - action: labeldrop
+        regex: otel_scope_schema_url|otel_scope_version

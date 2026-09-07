@@ -29,7 +29,7 @@ also carry `&pod=<id>` or the gateway has no route. A store's storefront host is
 
 ```bash
 brew install k6                                          # validated with k6 v2.2.0
-cd ../cvhome && lcl start -d --infra all && cd -         # the local stack, with Prometheus/Grafana/Tempo
+make stack-up                                            # the platform as its built images + Prometheus/Grafana/Tempo (stack/)
 make preflight                                           # is everything answering?
 make selftest                                            # every client method once, against the target
 make smoke                                               # every journey once; provisions the k6-local fixture store
@@ -42,17 +42,26 @@ make help                                                # every target and ever
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
 Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
 
-`lcl start` gives development numbers: every service is `gradle bootRun` on the host with no memory limit, and
-the storefront is `next dev`. For numbers that say something about a deployment, run the platform as its images,
-one container per service, 1 GB each — the same ports and hostnames, so `TARGET=lcl` stays as it is:
+The stack is `stack/docker-compose.yml`: every platform service as the image `bootBuildImage` produces, one
+container each, 1 GB each (`LOAD_MEM`), plus postgres, minio, spg and the monitoring five (otel-collector, loki,
+tempo, prometheus, grafana). Telemetry is on by default. **Images are a pre-step, never built here**:
+`./gradlew bootBuildImage` in `../cvhome` (tags `latest`), or `LOAD_REGISTRY=… LOAD_TAG=2.0.0` to pull a
+released version. The ports, hostnames and seeded stores are the platform's local defaults, so `TARGET=local`
+needs nothing else; `make hosts` prints the `/etc/hosts` lines a browser on this machine needs.
 
 ```bash
-cd ../cvhome && lcl stop && extra/scripts/load-stack.sh build && extra/scripts/load-stack.sh up && cd -
-make smoke                                               # then any run above
-cd ../cvhome && extra/scripts/load-stack.sh stats        # memory and CPU per container during a run
+make stack-up                                            # waits until every Java service answers /actuator/health
+make stack-stats                                         # memory and CPU per container during a run
+make stack-logs S=catalog                                # one service's logs
+make stack-down                                          # keep the database;  make stack-down-hard drops it
 ```
 
-What that stack is and what still differs from a deployment: `cvhome/extra/monitoring/docs/load-testing.md`,
+Development numbers (`lcl start` in `../cvhome`: `gradle bootRun` on the host, no memory limit, `next dev`) are
+not load numbers; the suite still reaches such a stack on the same ports, but nothing recorded in `docs/baseline.md`
+comes from one.
+
+What that stack is, how to read a run on the dashboards, and what still differs from a deployment:
+`docs/monitoring/load-testing.md`,
 section "The load stack".
 
 ## GitHub Actions
@@ -82,7 +91,7 @@ reads these optional GitHub Actions variables and secrets; an unset or empty val
 ## How it is built
 
 ```text
-k6/config/env/<target>.json    a deployment: hosts, pod, seeded stores and accounts (lcl.json is committed; copy aws.example.json for the rest)
+k6/config/env/<target>.json    a deployment: hosts, pod, seeded stores and accounts (local.json is committed; copy aws.example.json for the rest)
 k6/config/thresholds.js        the only place SLO numbers live — sloFor(layer, profile)
 k6/config/profiles.js          load shapes by PROFILE: scenario('vus'|'rate'|'once', exec, knobs), browserScenario(), build()
 k6/config/mix.js               the traffic ratios of the production mix
@@ -170,14 +179,21 @@ write; the `_ms` names describe the local summary, not the Prometheus unit. Cust
 `domain_lookups{known}`, `browser_errors`. Queries and the application-side signals to correlate with are in
 `docs/prometheus.md`.
 
+## Monitoring
+
+Everything that reads the platform lives here, next to what drives it: `stack/monitoring/` holds the collector,
+Prometheus (recording and alert rules, with promtool tests), Loki, Tempo and Grafana provisioning with the twelve
+dashboards, generated from `stack/monitoring/scripts/dashboards.spec.mjs` (`node stack/monitoring/scripts/build-dashboards.mjs`,
+`--check` in CI). `docs/monitoring/` is the reading guide: concepts, signals, KPIs, dashboards panel by panel,
+alerts, runbooks, `load-testing.md` (how a run shows up and how to turn it into findings) and `porting.md`
+(the same signals on AWS, where `aws-otel-collector` is the collector). `make monitoring-check` validates all of it.
+
 ## Prerequisites on the application side (not done here)
 
 | change | where in `../cvhome` | why |
 | --- | --- | --- |
-| `lcl start -d --infra all` | — | Prometheus with the remote-write receiver, Grafana, the collector, Tempo |
-| add `127.0.0.1 k6-local.spg-507f1f77.gateway.com` | `extra/scripts/configure-domain.sh` | only for a human's browser and `curl`; k6 and its Chromium resolve it themselves |
-| start the stack with `OTEL_SDK_DISABLED=false` | — | otherwise Prometheus holds k6's metrics and none of the application's |
-| Hikari stays 5/1 for the first runs, then 10 | `lcl-config.yml` | comparability with the Fargate default |
+| build the images (`./gradlew bootBuildImage`) | — | the stack runs them; it never builds |
+| Hikari pool size | `LOAD_POOL_SIZE` here (default 10) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
 
 JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
 `../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.

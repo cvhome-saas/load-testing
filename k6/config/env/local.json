@@ -1,5 +1,5 @@
 {
-  "name": "lcl",
+  "name": "local",
   "gatewayUrl": "http://gateway.com:8000",
   "uaaUrl": "http://uaa.gateway.com:8001",
   "podId": "507f1f77bcf86cd799439011",

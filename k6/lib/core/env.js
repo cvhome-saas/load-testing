@@ -8,7 +8,7 @@
  */
 
 export const SCHEMA = {
-  TARGET:            { default: 'lcl',        doc: 'deployment file: k6/config/env/<TARGET>.json' },
+  TARGET:            { default: 'local',        doc: 'deployment file: k6/config/env/<TARGET>.json' },
   PROFILE:           { default: 'smoke',      doc: 'load shape: smoke | load | stress | spike | soak | breakpoint' },
   RUN_ID:            { default: 'local',      doc: 'fixture namespace k6-<RUN_ID>, reused run after run; RUN_ID=fresh makes a new one' },
   STORES:            { default: 'org1-store1',doc: 'seeded stores a read test spreads over: names, comma-separated, or all' },

@@ -41,7 +41,7 @@ Branch cut from an up-to-date `origin/main` in its own worktree, merged into `ma
 - [ ] `./gradlew build -x test -x check` clean
 - [ ] `./gradlew test` — or the touched module's `:test` — clean (Docker up for Testcontainers)
 - [ ] Touched `-ui` module: `npm run build` clean (landing-ui: the **root** build chain, libs → templates → app)
-- [ ] Exercised against a running stack (`lcl start -d`) where behaviour changed
+- [ ] Exercised against a running stack (`make stack-up`) where behaviour changed
 - [ ] `<service>/qa/<module>-qa.md` updated for what changed, with each new case tagged
 
 ---
