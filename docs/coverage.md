@@ -23,6 +23,7 @@ scripts that put it under load. A family with no script is a gap; add the script
 | family | client method | scripts |
 | --- | --- | --- |
 | gateway sign-in (authorize → uaa form → callback), session check, health | `core/session.js`, `GatewayClient.health` | platform/gateway-login, every admin script (session pool) |
+| gateway impersonation: act as a merchant, status, hand back (`/api/v1/impersonation`, super-admin session) | `GatewayClient.impersonate / impersonation / stopImpersonation` | none yet — client only; selftest coverage needs a super-admin session and a merchant user id (cvhome#330) |
 | tenancy stores: list, all, info, get, unique, themes, color themes, per pod | `TenancyClient.listStores … storesPerPod` | admin/store-reads, admin/platform-reads |
 | tenancy lifecycle: signup, create, suspend, resume, archive, delete, store pod | `TenancyClient.signup, createStore … storePod` | admin/store-lifecycle, fixtures |
 | tenancy org/users/statistics: current, orgs, org stores, members, user accounts, store/org statistic | `TenancyClient.currentUser … orgStatistic` | admin/store-reads, admin/platform-reads |
