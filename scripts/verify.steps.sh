@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # The gates CI runs (.github/workflows/check.yml), in order. `step "<name>" <command...>` stops at the first
 # failure. Keep identical to CI.
 #
