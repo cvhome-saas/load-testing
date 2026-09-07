@@ -2,7 +2,7 @@
 /**
  * store-core-gateway itself: the console's SSR entry points and the health probe. Login is core/session.js.
  */
-import { get } from '../core/http.js';
+import { get, post, del } from '../core/http.js';
 
 export class GatewayClient {
   constructor(edge) { this.edge = edge; }
@@ -10,4 +10,13 @@ export class GatewayClient {
   console() { return get(this.edge, '', '/', { name: 'gateway:console' }); }
   signIn() { return get(this.edge, '', '/sign-in', { name: 'gateway:sign-in' }); }
   health() { return get(this.edge, '', '/actuator/health', { name: 'gateway:health' }); }
+
+  // Acting as a merchant (cvhome#330): the gateway exchanges the operator's token at uaa for the merchant's
+  // and swaps the session. Needs a super-admin session with `users:impersonate`; the session is the merchant's
+  // until stopImpersonation. Contract: store-core/gateway/gateway-service/http/impersonation-api.http.
+  impersonate(userId, reason, expect) {
+    return post(this.edge, '', '/api/v1/impersonation', { name: 'gateway:impersonation-start', body: { userId, reason: reason || 'k6 selftest' }, expect: expect || [200] });
+  }
+  impersonation(expect) { return get(this.edge, '', '/api/v1/impersonation', { name: 'gateway:impersonation-status', expect: expect || [200, 204] }); }
+  stopImpersonation(expect) { return del(this.edge, '', '/api/v1/impersonation', { name: 'gateway:impersonation-stop', expect: expect || [200, 204] }); }
 }
