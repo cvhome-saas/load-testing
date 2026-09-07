@@ -1,0 +1,59 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_server_max_recv_msg_size: 20971520   # 20 MB
+  grpc_server_max_send_msg_size: 20971520   # 20 MB
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /tmp/loki
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: memberlist   # ✅ more stable than inmemory
+
+memberlist:
+  join_members: [ ]        # single node, fine empty
+
+ingester:
+  chunk_idle_period: 5m        # ✅ avoids premature flush
+  max_chunk_age: 10m           # ✅ keeps chunks open longer
+  chunk_retain_period: 2m      # ✅ avoids query gaps
+  wal:
+    enabled: true              # ✅ durability
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 20
+  volume_enabled: true
+
+  # ✅ important for query consistency
+  max_cache_freshness_per_query: 10m
+
+querier:
+  query_ingesters_within: 5m
+
+query_range:
+  align_queries_with_step: true
+  cache_results: true
+
+frontend:
+  log_queries_longer_than: 5s
+
+analytics:
+  reporting_enabled: false

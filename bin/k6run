@@ -2,7 +2,7 @@
 # Runs one k6 script with the suite's conventions:
 #   testid tag, layer/target tags, Prometheus remote write, low-cardinality system tags, results dir, browser env.
 #
-#   bin/k6run k6/scripts/shopper/guest-checkout.js            PROFILE=load TARGET=lcl bin/k6run ...
+#   bin/k6run k6/scripts/shopper/guest-checkout.js            PROFILE=load TARGET=local bin/k6run ...
 #   NO_PROM=1 bin/k6run ...                                   skip the remote-write output (results/*.json only)
 #   NO_GRAFANA=1 bin/k6run ...                                skip the Grafana run annotation
 #
@@ -14,7 +14,7 @@ script="${1:?usage: bin/k6run <script.js> [k6 args...]}"; shift || true
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-export TARGET="${TARGET:-lcl}"
+export TARGET="${TARGET:-local}"
 export PROFILE="${PROFILE:-smoke}"
 export RUN_ID="${RUN_ID:-local}"                       # fixture namespace; RUN_ID=fresh -> a new one per run
 [ "$RUN_ID" = "fresh" ] && RUN_ID="$(date -u +%Y%m%d%H%M%S)" && export RUN_ID

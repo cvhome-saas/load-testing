@@ -2,8 +2,8 @@
 
 `bin/k6run` streams every sample to Prometheus with `--out experimental-prometheus-rw`. The endpoint comes from
 `prometheusUrl` in `k6/config/env/<TARGET>.json` (`PROMETHEUS_URL` overrides it); `NO_PROM=1` skips the output.
-Locally that is the stack's own Prometheus, started by `lcl start -d --infra all` with the remote-write receiver
-on (`docker-compose-lcl.yml`). Grafana is at `http://localhost:3000` (anonymous admin), Prometheus at `:9090`.
+Locally that is the load stack's own Prometheus (`make stack-up`, `stack/docker-compose.yml`) with the remote-write
+receiver on. Grafana is at `http://localhost:3000` (anonymous admin), Prometheus at `:9090`.
 
 ## Labels every sample carries
 
@@ -11,7 +11,7 @@ on (`docker-compose-lcl.yml`). Grafana is at `http://localhost:3000` (anonymous 
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------- |
 | `testid`                                                          | `<script>-<profile>-<utc>`                                                 | `bin/k6run` (`TESTID` to pin one) |
 | `layer`                                                           | storefront · shopper · admin · platform · browser · mixed · all            | script directory                  |
-| `target`                                                          | lcl · dev · …                                                              | `TARGET`                          |
+| `target`                                                          | local · aws · …                                                            | `TARGET`                          |
 | `profile`                                                         | smoke · load · stress · spike · soak · breakpoint                          | `PROFILE`                         |
 | `name`                                                            | one per endpoint, e.g. `catalog:product`, `checkout:checkout`, `page:home` | every client method               |
 | `store`                                                           | store name (`org1-store1`, `k6-local`, …) or `none`                        | the edge                          |
@@ -74,16 +74,16 @@ it at exit, so every run is a shaded region on every dashboard. `grafanaUrl` com
 
 ## Application-side signals worth putting next to these
 
-Locally the services export once the stack is started with `OTEL_SDK_DISABLED=false lcl start -d --infra all`;
-the collector exposes them on `otel-collector:8889` and the recording rules in `../cvhome/extra/monitoring/prometheus-rules`
+Locally the services export by default on the load stack (`OTEL_SDK_DISABLED=false` is the compose default);
+the collector exposes them on `otel-collector:8889` and the recording rules in `stack/monitoring/prometheus-rules`
 compute the SLIs. These are the edges the suite is built to hit:
 
-| signal                                                                                    | edge                                                                        |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `cvhome:hikari_pending:max` (`hikaricp_connections_pending`)                              | database pool exhaustion (5 per service on lcl, 10 on Fargate)              |
-| `cvhome:tomcat_threads:utilisation` (`tomcat_threads_busy` / `tomcat_threads_config_max`) | request-thread saturation                                                   |
-| `cvhome:jvm_heap_after_gc:ratio` slope during soak                                        | unbounded caches (catalog/checkout/payment `STORE` cache), gateway sessions |
-| `cvhome:sql_per_request:ratio5m`, `cvhome:sql:p95_5m`                                     | N+1 and slow statements                                                     |
-| `cvhome:s2s_failed:ratio_rate5m`                                                          | a dependency giving up under load                                           |
-| spg span `merchant` p95 (Edge dashboard)                                                  | spg domain-cache misses                                                     |
-| `cvhome_auth_rejections_total{reason="rate_limited"}` / status 429                        | the limiter engaging                                                        |
+| signal                                                                                    | edge                                                                                                     |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `cvhome:hikari_pending:max` (`hikaricp_connections_pending`)                              | database pool exhaustion (5 per service on a dev stack, LOAD_POOL_SIZE on the load stack, 10 on Fargate) |
+| `cvhome:tomcat_threads:utilisation` (`tomcat_threads_busy` / `tomcat_threads_config_max`) | request-thread saturation                                                                                |
+| `cvhome:jvm_heap_after_gc:ratio` slope during soak                                        | unbounded caches (catalog/checkout/payment `STORE` cache), gateway sessions                              |
+| `cvhome:sql_per_request:ratio5m`, `cvhome:sql:p95_5m`                                     | N+1 and slow statements                                                                                  |
+| `cvhome:s2s_failed:ratio_rate5m`                                                          | a dependency giving up under load                                                                        |
+| spg span `merchant` p95 (Edge dashboard)                                                  | spg domain-cache misses                                                                                  |
+| `cvhome_auth_rejections_total{reason="rate_limited"}` / status 429                        | the limiter engaging                                                                                     |

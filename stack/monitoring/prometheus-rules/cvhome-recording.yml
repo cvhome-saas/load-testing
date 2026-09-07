@@ -1,0 +1,140 @@
+# The SLIs, computed once. Every dashboard panel and alert reads these names instead of repeating the raw query, so a
+# threshold or a label change is one edit. Naming: cvhome:<what>:<how>. Plain-language meaning of each rule:
+# docs/monitoring/kpis.md.
+groups:
+  - name: cvhome-http
+    interval: 15s
+    rules:
+      # Requests per second per route (health probes and unrouted requests excluded).
+      - record: cvhome:http_server_requests:rate5m
+        expr: sum by (service_name, method, uri, status) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+      # Share of requests answered 5xx: the availability SLI.
+      - record: cvhome:http_server_errors:ratio_rate5m
+        # "or … * 0" keeps a 0 series when there are no 5xx at all, so a healthy service still shows 0 instead of nothing.
+        expr: (sum by (service_name) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*|UNKNOWN|root"}[5m])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+      # Share of requests answered 4xx other than auth (401/403 are tracked on their own below).
+      - record: cvhome:http_server_4xx:ratio_rate5m
+        expr: (sum by (service_name) (rate(http_server_requests_seconds_count{status=~"4..",status!~"401|403",uri!~"/actuator.*|UNKNOWN|root"}[5m])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+      # 401 and 403 per second per service (bare 401s from the JWT filter carry uri="UNKNOWN", so no uri filter here).
+      - record: cvhome:http_server_auth_rejections:rate5m
+        expr: sum by (service_name, status) (rate(http_server_requests_seconds_count{status=~"401|403"}[5m]))
+      # p95 latency per route.
+      - record: cvhome:http_server_requests:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, method, uri, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*|UNKNOWN|root"}[5m])))
+      # p99 latency per route.
+      - record: cvhome:http_server_requests:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, method, uri, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*|UNKNOWN|root"}[5m])))
+      # p95 latency per service from server spans; also covers spg and landing-ui, which have no Micrometer.
+      - record: cvhome:span_server:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, le) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_SERVER"}[5m])))
+      # Storefront reads answered under 500 ms, as a share (the latency SLO of the shopper-facing pods).
+      - record: cvhome:slo_latency_storefront:good_ratio_rate5m
+        expr: |
+          sum by (service_name) (rate(http_server_requests_seconds_bucket{le="0.5",method="GET",service_name=~"catalog|content|merchant|inventory",uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+          /
+          sum by (service_name) (rate(http_server_requests_seconds_count{method="GET",service_name=~"catalog|content|merchant|inventory",uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+      # Checkout and payment writes answered under 2 s, as a share.
+      - record: cvhome:slo_latency_checkout:good_ratio_rate5m
+        expr: |
+          sum by (service_name) (rate(http_server_requests_seconds_bucket{le="2",method=~"POST|PUT",service_name=~"checkout|payment",uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+          /
+          sum by (service_name) (rate(http_server_requests_seconds_count{method=~"POST|PUT",service_name=~"checkout|payment",uri!~"/actuator.*|UNKNOWN|root"}[5m]))
+      # Outgoing HTTP calls that came back 4xx/5xx, per destination.
+      - record: cvhome:http_client_errors:rate5m
+        expr: sum by (service_name, server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{http_response_status_code=~"4..|5.."}[5m]))
+
+  - name: cvhome-slo-burn
+    interval: 15s
+    rules:
+      # How fast the availability error budget (SLO 99.9 %, budget 0.1 %) is being spent, over four windows.
+      # 1 = spending exactly the budget; 14.4 over 1h = the whole month's budget gone in two days.
+      - record: cvhome:slo_availability:burn_rate5m
+        expr: ((sum by (service_name) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*|UNKNOWN|root"}[5m])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[5m]))) / 0.001
+      - record: cvhome:slo_availability:burn_rate30m
+        expr: ((sum by (service_name) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*|UNKNOWN|root"}[30m])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[30m])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[30m]))) / 0.001
+      - record: cvhome:slo_availability:burn_rate1h
+        expr: ((sum by (service_name) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*|UNKNOWN|root"}[1h])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[1h])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[1h]))) / 0.001
+      - record: cvhome:slo_availability:burn_rate6h
+        expr: ((sum by (service_name) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*|UNKNOWN|root"}[6h])) or sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[6h])) * 0) / sum by (service_name) (rate(http_server_requests_seconds_count{uri!~"/actuator.*|UNKNOWN|root"}[6h]))) / 0.001
+      # Same idea for the storefront latency SLO (95 % under 500 ms, budget 5 %).
+      - record: cvhome:slo_latency_storefront:burn_rate5m
+        expr: (1 - cvhome:slo_latency_storefront:good_ratio_rate5m) / 0.05
+      - record: cvhome:slo_latency_storefront:burn_rate1h
+        expr: |
+          (1 - (
+            sum by (service_name) (rate(http_server_requests_seconds_bucket{le="0.5",method="GET",service_name=~"catalog|content|merchant|inventory",uri!~"/actuator.*|UNKNOWN|root"}[1h]))
+            / sum by (service_name) (rate(http_server_requests_seconds_count{method="GET",service_name=~"catalog|content|merchant|inventory",uri!~"/actuator.*|UNKNOWN|root"}[1h]))
+          )) / 0.05
+
+  - name: cvhome-sql
+    interval: 15s
+    rules:
+      # Statements per second per service, split by operation and table (from the JDBC client spans).
+      - record: cvhome:sql:rate5m
+        expr: sum by (service_name, db_operation, db_sql_table) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_CLIENT",db_system="postgresql"}[5m]))
+      # p95 per statement family ("SELECT catalog.product").
+      - record: cvhome:sql:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, span_name, le) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_CLIENT",db_system="postgresql"}[5m])))
+      # p99 per service.
+      - record: cvhome:sql:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, le) (rate(traces_span_metrics_duration_seconds_bucket{span_kind="SPAN_KIND_CLIENT",db_system="postgresql"}[5m])))
+      # Statements per incoming request: the N+1 signal.
+      - record: cvhome:sql_per_request:ratio5m
+        expr: |
+          sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_CLIENT",db_system="postgresql"}[5m]))
+          /
+          sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[5m]))
+      # Statements that ended in error.
+      - record: cvhome:sql_errors:rate5m
+        expr: sum by (service_name, span_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_CLIENT",db_system="postgresql",status_code="STATUS_CODE_ERROR"}[5m]))
+
+  - name: cvhome-s2s
+    interval: 15s
+    rules:
+      # Service-to-service calls per second per edge.
+      - record: cvhome:s2s:rate5m
+        expr: sum by (client, server) (rate(traces_service_graph_request_total{connection_type=""}[5m]))
+      # Share of calls on an edge that failed.
+      - record: cvhome:s2s_failed:ratio_rate5m
+        expr: |
+          (sum by (client, server) (rate(traces_service_graph_request_failed_total{connection_type=""}[5m]))
+            or sum by (client, server) (rate(traces_service_graph_request_total{connection_type=""}[5m])) * 0)
+          /
+          sum by (client, server) (rate(traces_service_graph_request_total{connection_type=""}[5m]))
+      # p95 as the caller sees it, per edge.
+      - record: cvhome:s2s:p95_5m
+        expr: histogram_quantile(0.95, sum by (client, server, le) (rate(traces_service_graph_request_client_seconds_bucket{connection_type=""}[5m])))
+
+  - name: cvhome-saturation
+    interval: 15s
+    rules:
+      # Connections in use as a share of the pool.
+      - record: cvhome:hikari_pool:utilisation
+        expr: max by (service_name) (hikaricp_connections_active) / max by (service_name) (hikaricp_connections_max)
+      # Threads waiting for a connection right now (anything above 0 means the pool is the bottleneck).
+      - record: cvhome:hikari_pending:max
+        expr: max by (service_name) (hikaricp_connections_pending)
+      # Requests that gave up waiting for a connection.
+      - record: cvhome:hikari_timeouts:rate5m
+        expr: sum by (service_name) (rate(hikaricp_connections_timeout_total[5m]))
+      # p95 time to obtain a connection.
+      - record: cvhome:hikari_acquire:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, le) (rate(hikaricp_connections_acquire_seconds_bucket[5m])))
+      # Request threads busy as a share of the maximum.
+      - record: cvhome:tomcat_threads:utilisation
+        expr: max by (service_name) (tomcat_threads_busy) / max by (service_name) (tomcat_threads_config_max)
+      # Share of wall time the JVM spent paused in garbage collection.
+      - record: cvhome:jvm_gc_pause:ratio5m
+        expr: sum by (service_name) (rate(jvm_gc_duration_seconds_sum{jvm_gc_action=~".*pause.*"}[5m]))
+      # Live heap after the last collection as a share of the heap limit (the leak / undersized-heap signal).
+      - record: cvhome:jvm_heap_after_gc:ratio
+        expr: |
+          sum by (service_name) (jvm_memory_used_after_last_gc_bytes{jvm_memory_type="heap"})
+          /
+          sum by (service_name) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+      # CPU used by the JVM process, 0..1.
+      - record: cvhome:jvm_cpu:ratio
+        expr: max by (service_name) (jvm_cpu_recent_utilization_ratio)
+      # Seconds since a service last reported; a service that stopped exporting is down or its SDK is off.
+      - record: cvhome:service_last_seen:seconds
+        expr: time() - max by (service_name) (timestamp(process_uptime_seconds))

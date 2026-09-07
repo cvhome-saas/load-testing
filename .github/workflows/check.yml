@@ -66,7 +66,7 @@ jobs:
       - name: Check code
         run: npm run code:check
 
-      - name: Build k6 archives (lcl target baked in)
+      - name: Build k6 archives (local target baked in)
         run: npm run build
 
       - name: Upload k6 archives
@@ -76,3 +76,22 @@ jobs:
           path: build/k6
           if-no-files-found: error
           retention-days: 14
+
+  monitoring:
+    name: Monitoring config and the load stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Dashboards and docs/monitoring/dashboards.md are generated from dashboards.spec.mjs; a stale file fails here.
+      # promtool and the collector validate their own configs; the compose file must at least parse.
+      - name: Dashboards, rules, collector config, compose file
+        run: make monitoring-check
