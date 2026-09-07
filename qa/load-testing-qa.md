@@ -1,0 +1,118 @@
+# QA — load-testing suite
+
+The operator's path through the k6 suite: validating scripts without traffic, checking the target, running the
+client self-test and a smoke run against a cvhome stack, finding where a run's results and Grafana annotation
+land, and removing what the suite created.
+
+- **Scope** — the make targets, `bin/k6run`, `scripts/preflight.sh`, `scripts/cleanup.sh`, the `k6-<RUN_ID>`
+  fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
+- **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
+  `cd ../cvhome && lcl start -d --infra all` (Prometheus, Grafana, collector, Tempo) with `OTEL_SDK_DISABLED=false`.
+- **Cases** — 9 (0 verified, 9 not verified)
+- **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
+  reading a run; `docs/coverage.md` for which endpoint each client method hits.
+
+Each case is tagged **[verified]** (run end to end and passed) or **[not verified]** (never run by anyone —
+where the bugs are).
+
+## 00 — Before you start
+
+- `k6 version` prints 2.2.x; `node --version` is 20.19+; `npm ci` done in this repo.
+- For 02–04: the local stack is up (`lcl status` in `../cvhome` shows every service `up`), `lcl urls` matches
+  `k6/config/env/lcl.json` (gateway `:8000`, uaa `:8001`, pod domain `spg-507f1f77.gateway.com`). If a second
+  stack shifted the ports, edit a copy of the env file, not the committed one.
+- `TARGET` defaults to `lcl`, `PROFILE` to `smoke`, `RUN_ID` to `local` — so the fixture store is `k6-local`.
+
+## 01 — validation without traffic
+
+### 01.1 make inspect parses every script [not verified]
+- Setup: no stack needed.
+- Steps: `make inspect`; then break an import in any `k6/scripts/**/*.js` and run it again; revert.
+- Expect: one `ok` line per script under `k6/scripts/` (top-level `smoke`, `selftest`, `fixtures`, `cleanup` and
+  every `<layer>/<name>`), exit 0, no HTTP request made. With the broken import: that script prints `FAIL`, the
+  k6 error follows, exit 1, and the loop stops there.
+
+### 01.2 the full local gate matches CI [not verified]
+- Setup: `npm ci`.
+- Steps: `npm test` (or `scripts/verify.sh`); then `ls build/k6/lcl/`.
+- Expect: npm audit at `high`, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
+  `make build` all pass; `build/k6/lcl/` holds one `.tar` archive per script mirroring `k6/scripts/`. A missing
+  `shellcheck`/`actionlint` prints `! <tool> not installed; skipping` and passes locally; with `CI=true` it fails.
+  `scripts/verify.sh` ends with a receipt line and `git push` is then allowed for that exact tree.
+
+## 02 — is the target up
+
+### 02.1 make preflight against a running stack [not verified]
+- Setup: the stack up as in 00.
+- Steps: `make preflight`; then `lcl stop` one service (say `catalog`) in `../cvhome` and run it again; restart it.
+- Expect: with everything up, ✓ lines for gateway console, gateway health, uaa public login settings, storefront
+  home, catalog through spg, "spg refuses an unknown sub-domain" (404 or 307), Prometheus ready, and the k6
+  version; exit 0. With `catalog` down: the catalog probe prints `✗ … -> 000/502 (want 200)` and the script exits 1.
+  Without Prometheus: a `!` warning naming `lcl start -d --infra all` / `NO_PROM=1`, not a failure.
+
+## 03 — running against the stack
+
+### 03.1 make selftest covers every client method once [not verified]
+- Setup: stack up, `make preflight` green.
+- Steps: `make selftest` (it sets `NO_PROM=1` itself); read the summary.
+- Expect: every client method runs once through `expect.soft`, so one run reports every broken contract instead
+  of stopping at the first; checks summary lists each `service:endpoint` name; exit 0 when all pass. A failing
+  method shows its name and expected vs actual status, and the run still completes. No `k6-` store is created.
+
+### 03.2 one smoke run, and where the results land [not verified]
+- Setup: stack up with Prometheus and Grafana (`--infra all`); note the time.
+- Steps: `make smoke`; watch the first `k6run  script=… testid=…` line; after it ends: `ls -t results/ | head -1`;
+  `make prom-check TESTID=<that testid>`; `make dash` (or `make dash TESTID=<testid>`); in Grafana, open any
+  dashboard over the last hour.
+- Expect: `bin/k6run` prints `script=k6/scripts/smoke.js layer=all profile=smoke target=lcl run_id=local
+  testid=smoke-smoke-<UTC stamp>` and runs with `--out experimental-prometheus-rw`. Every journey runs one
+  iteration; `setup()` provisions the `k6-local` org/store/catalogue (first run only, reused afterwards) and the
+  run places orders on it. `results/<testid>.json` exists. `prom-check` returns a non-empty
+  `sum(k6_http_reqs_total{testid="…"})` result. `dash` prints and opens
+  `<grafanaUrl>/d/cvhome-load-test-vs-app?var-testid=<testid>…`; the run appears as a shaded region annotation
+  tagged `k6`, `testid:<id>`, `profile:smoke`, `layer:all` from its start to its end on every dashboard.
+
+### 03.3 a run stays local with NO_PROM / NO_GRAFANA [not verified]
+- Setup: stack up; Prometheus may be down.
+- Steps: `NO_PROM=1 NO_GRAFANA=1 PROFILE=smoke make storefront-browse`.
+- Expect: the k6run line shows no `--out`, no annotation is posted, `results/<testid>.json` is still written, and
+  `make prom-check TESTID=<testid>` returns an empty result.
+
+### 03.4 a per-script target honours PROFILE and the knobs [not verified]
+- Setup: stack up.
+- Steps: `make knobs`; `make shopper-cart PROFILE=smoke`; `make shopper-cart PROFILE=load RATE=5 DURATION=30s`.
+- Expect: `knobs` lists every `__ENV` knob with default and doc (`RATE`, `DURATION`, `PEAK_VUS`, …). The smoke run
+  is one iteration; the load run is an open model at 5 req/s for 30 s, its `testid` is `cart-load-<stamp>`, and
+  the thresholds from `k6/config/thresholds.js` for the `shopper` layer are evaluated in the summary.
+
+## 04 — cleanup
+
+### 04.1 make clean removes the k6- fixtures [not verified]
+- Setup: at least one run with fixtures done (03.2); in the console, note the `k6-local` org and store, and the
+  postgres container name (`docker ps`).
+- Steps: `make clean`; then in the console/API list stores and orgs; then `make smoke` again.
+- Expect: the API pass archives and deletes every `k6-` store as a seller would; the SQL pass runs
+  `scripts/cleanup.sql` through the postgres container and removes what no API deletes (orders, carts, shoppers,
+  orgs named `k6-`). Seeded demo stores (`org1-store1`, …) are untouched. The next `make smoke` provisions
+  `k6-local` afresh instead of stopping on the reserved name. With the stack down: the API pass prints
+  `! API pass failed (stack down?) — continuing with SQL`; with no postgres container: `! no postgres container
+  found; skip SQL pass`, exit 0.
+
+## REG — regression watchlist
+
+- `KEEP_FIXTURES=false` soft-deletes the store but its name stays reserved: the next run with the same `RUN_ID`
+  stops until `make clean` has run its SQL pass. Expected, documented in the README; watch for a run that hangs
+  in `setup()` on a "store exists" error.
+- The `url` system tag must stay dropped (`K6_SYSTEM_TAGS` in `bin/k6run`); its return explodes Prometheus
+  series cardinality.
+
+## 99 — known gaps
+
+- `TARGET=lcl` numbers are dev-server numbers (`next dev`, Angular dev server, `gradle bootRun`); use
+  `extra/scripts/load-stack.sh` in `../cvhome` for numbers that say something about a deployment.
+- The fixture store is a trial store: 25 products and 50 orders a month; a long checkout run meets the cap
+  (`plan_limit_hits`). Registration and account tests use the seeded stores because the trial store refuses
+  shopper self-registration.
+- Product photos 404 locally (MinIO has no volume); `BROWSER_BLOCK_IMAGES=1` keeps them out of browser failure
+  rates.
+- `Run k6 tests` with `target=lcl` needs a self-hosted runner (`K6_RUNNER`); a hosted runner refuses it.
