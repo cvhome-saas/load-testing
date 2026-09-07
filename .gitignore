@@ -16,3 +16,4 @@ screenshots/
 .DS_Store
 build/
 node_modules/
+.claude/worktrees/

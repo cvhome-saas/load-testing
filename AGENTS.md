@@ -46,3 +46,61 @@ script); `docs/prometheus.md` is where the numbers go. The k6 skill in `.claude/
   in memory.
 - App-side changes (OTEL on, JVM metrics, un-dropping tomcat metrics, Hikari sizing) belong to `../cvhome`; flag
   them in the README's prerequisites table, do not make them here.
+
+## Working conventions (org standard — the same in every cvhome-saas repo)
+
+Part of the `cvhome-saas` organisation. Cross-repo routing, review and releases live in `cvhome-saas/orchestrator`;
+this file is the repo's own rulebook, and the architecture rules above stay in force unchanged.
+
+- **`main` is the integration branch — and, here, the release.** Every change lands by PR into `main`; nobody
+  commits or pushes to `main` directly. load-testing is a rolling repo: there is no version file, no manual tag,
+  and no `Release` step of its own — a run uses whatever `main` holds, and `Run k6 tests` builds from it. Where
+  the org standard cuts `vX.Y.Z` tags with the orchestrator's `Release` workflow, this repo does not carry a
+  product version at all.
+- **Every change starts as a fresh worktree cut from up-to-date `main`, before the first file is written:**
+
+  ```bash
+  git fetch origin
+  git worktree add --no-track .claude/worktrees/<type>-<short-name> -b <type>/<short-name> origin/main
+  ```
+
+  `<type>` ∈ `feat|fix|docs|chore|refactor|test`. Work, validate and verify from inside that worktree; the
+  primary checkout stays clean on `main`. `.claude/hooks/worktree-guard.mjs` denies any edit in the primary
+  checkout (`ALLOW_MAIN_WRITES=1` is the person's deliberate escape hatch, never the agent's).
+- **A plan is phases; a phase is one PR.** Anything bigger than one PR starts as
+  `.agents/plans/<kebab-name>.md` (template: `.agents/plans/README.md`): context, why the design is what it
+  is, then `## Phase N — <area> (PR N)` sections each small enough to review in one sitting, then
+  deviations as built and verification. One plan, one worktree, one branch; each phase is committed and
+  shipped as its own PR before the next begins (stacked if it must). A plan that needs an app-side change
+  (`../cvhome`) or an infra change (`../cvhome-platform`) names it and hands that phase to the orchestrator
+  (`cross-repo-change`) — see *Working here*: those changes are flagged in the README's prerequisites table,
+  never made here.
+- **Nothing is pushed until the gates have passed locally.** `scripts/verify.sh` runs exactly what CI runs
+  (`scripts/verify.steps.sh`: `npm ci`, then `npm test` = npm audit, ESLint, Prettier, Markdownlint, ShellCheck,
+  actionlint, `make inspect`, `make build`) and writes a receipt for the exact tree; `.githooks/pre-push` and
+  `.claude/hooks/push-guard.mjs` refuse a push without it, a push to `main`, and `--no-verify`. k6 must be
+  installed; shellcheck and actionlint are optional locally (`scripts/with-tool.sh`) and required under `CI=true`.
+- **`/go` ships the working tree** (commit → verify → push → PR into `main`, template filled, changelog
+  label); **`/reset` returns to a clean `main`** without losing work. Both in `.claude/commands/`.
+- **PR body follows `.github/PULL_REQUEST_TEMPLATE.md`**: *Why → What → The parts that are not obvious →
+  Deviations → Verification*. Label it: `type/enhancement|bug|documentation|test|chore|dependency-upgrade`,
+  `warn/api-change|behavior-change|deprecation|regression|blocker`, `ignore-changelog`.
+  `.github/release.yml` turns labels into release notes for the org's changelog; a `warn/*` label here says the
+  suite's contract with the app changed (a threshold, a knob, a fixture name).
+- **QA is a file that travels with the code.** An operator-visible behaviour — a make target, a knob, where results
+  and annotations land, what `make clean` removes — is not done until it has a case in `qa/load-testing-qa.md`
+  (template: `qa/README.md`), tagged **[verified]** / **[not verified]**, with setup, steps and expected result.
+  `make inspect` and `make selftest` prove the scripts and the clients; the QA file proves the path an operator
+  takes.
+- **No design gate here.** This repo has no screens; the org's design-portal rule does not apply.
+- **Commit messages**: `<type|area>: <what changed>`, imperative, plus a body when the change is not
+  self-evident, ending with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+
+## Completion gates
+
+- [ ] `scripts/verify.sh` green for the exact tree being pushed
+- [ ] A new script has the generated-by comment on line 1, a `make <layer>-<name>` target (automatic from its
+      path), a row in `README.md` → *Scripts*, and its endpoints in `docs/coverage.md`
+- [ ] A new knob is declared in `lib/core/env.js` and shows in `make knobs`
+- [ ] Operator-visible behaviour has a case in `qa/load-testing-qa.md`, tagged honestly
+- [ ] Anything `../cvhome` or `../cvhome-platform` must change is named in the PR body under *Deviations*
