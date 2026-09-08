@@ -42,7 +42,9 @@ and `stack/monitoring/` the collector, Prometheus rules, Loki, Tempo and Grafana
   builds an image), one container per service at `LOAD_MEM`, plus infra and monitoring, telemetry on. `make
   stack-ps`, `make stack-logs S=<service>`, `make stack-stats`, `make stack-down[-hard]`. It takes the platform's
   canonical ports; an `lcl` dev stack in `../cvhome` must be stopped first, and numbers from a dev stack are never
-  recorded as load numbers.
+  recorded as load numbers. Against a deployed target, `make aws-up` starts only the monitoring
+  (`stack/docker-compose.aws.yml`, its own `cvhome-aws` project) and `TARGET=aws` points the suite at
+  `k6/config/env/aws.json`; README → *Load testing a deployed environment*.
 - Facts that shaped the suite (verified against the app, keep them true): a store's storefront host is its name
   under the pod domain; store creation is asynchronous (poll `router/store-pod-by-store-id`); a trial store is
   capped at 25 products, has no payment configuration and refuses self-registration until configured; org1-store1

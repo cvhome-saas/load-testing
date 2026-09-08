@@ -1,0 +1,68 @@
+# Monitoring only, for a target that already runs somewhere else — an AWS environment from ../cvhome-platform.
+# The same Prometheus, Grafana, Loki and Tempo the full load stack runs, with the same rules, datasources and
+# dashboards, and none of the platform's containers: the application is behind the URLs in
+# k6/config/env/aws.json, and k6 remote-writes to the Prometheus here.
+#
+#   make aws-up          docker compose -p cvhome-aws -f stack/docker-compose.aws.yml up -d
+#   make aws-down        stop it (nothing here holds state worth keeping)
+#
+# What the "Load test vs app" dashboard can show against a deployed target is the k6 side only: the
+# application panels read what the JVMs export to a collector next to this Prometheus, and on AWS they export
+# to aws-otel-collector (CloudWatch) instead. docs/monitoring/porting.md is the map between the two.
+#
+# Its own project name, so it never fights `make stack-up` over service names; it does share the host ports
+# (3000, 9090, 3100, 3200), so only one of the two stacks runs at a time.
+
+x-limits: &limits
+  deploy:
+    resources:
+      limits:
+        memory: ${LOAD_MEM:-1g}
+
+services:
+  loki:
+    <<: *limits
+    image: grafana/loki:3.6.10
+    command: [ "-config.file=/etc/loki/loki.yml" ]
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
+    ports:
+      - "3100:3100"
+  tempo:
+    <<: *limits
+    image: grafana/tempo:2.10.5
+    command: [ "-config.file=/etc/tempo/tempo.yml" ]
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo/tempo.yml:ro
+    ports:
+      - "3200:3200"
+  prometheus:
+    <<: *limits
+    image: prom/prometheus:v3.11.2
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=exemplar-storage"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules:/etc/prometheus/rules:ro
+    ports:
+      - "9090:9090"
+  grafana:
+    <<: *limits
+    image: grafana/grafana:12.4
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/load-testing/cvhome-load-test-vs-app.json
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/cvhome.yml:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
