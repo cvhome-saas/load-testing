@@ -3,6 +3,7 @@
 #   make smoke                       make shopper-guest-checkout PROFILE=load RATE=60
 #   make all-smoke                   make browser-shopper-checkout K6_BROWSER_HEADLESS=false
 #   make stack-up                    the platform as its built images + monitoring (stack/docker-compose.yml)
+#   make aws-up                      monitoring only, for a deployed target (stack/docker-compose.aws.yml); then TARGET=aws make smoke
 RUN := bin/k6run
 # bin/k6run defaults TARGET for runs; `build` needs it here too (an exported-but-empty TARGET counts as set)
 TARGET := $(if $(TARGET),$(TARGET),local)
@@ -11,6 +12,7 @@ EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6
 
 .PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash \
         stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats hosts monitoring-check \
+        aws-up aws-down aws-ps \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
 help: ## targets and knobs
@@ -75,6 +77,19 @@ stack-stats: ## memory and CPU per container, once
 hosts: ## the /etc/hosts lines a browser on this machine needs for the load stack
 	stack/stack.sh hosts
 
+AWS_COMPOSE := docker compose -p cvhome-aws -f stack/docker-compose.aws.yml
+aws-up: ## monitoring only (prometheus, grafana, loki, tempo) for a deployed target; needs k6/config/env/aws.json
+	@test -f k6/config/env/aws.json || { echo "no k6/config/env/aws.json — cp k6/config/env/aws.example.json k6/config/env/aws.json and fill it from terraform output in ../cvhome-platform"; exit 1; }
+	$(AWS_COMPOSE) up -d
+	@for i in $$(seq 1 30); do curl -sf -o /dev/null http://localhost:9090/-/ready && curl -sf -o /dev/null http://localhost:3000/api/health && break; sleep 2; done
+	@echo "==> http://localhost:3000 (Grafana)  http://localhost:9090 (Prometheus)  next: TARGET=aws make preflight && TARGET=aws make smoke"
+
+aws-down: ## stop the monitoring-only stack
+	$(AWS_COMPOSE) down
+
+aws-ps: ## what the monitoring-only stack is running
+	$(AWS_COMPOSE) ps
+
 monitoring-check: ## dashboards match their spec and docs; Prometheus rules, config and the collector config are valid; the compose file parses
 	node stack/monitoring/scripts/build-dashboards.mjs --check
 	node stack/monitoring/scripts/dashboard-docs.mjs --check
@@ -83,6 +98,7 @@ monitoring-check: ## dashboards match their spec and docs; Prometheus rules, con
 	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" --entrypoint promtool prom/prometheus:v3.11.2 check config --syntax-only /etc/prometheus/prometheus.yml
 	docker run --rm -v "$(CURDIR)/stack/monitoring/otel-collector.yml:/etc/otel-collector.yml:ro" otel/opentelemetry-collector-contrib:0.150.1 validate --config=/etc/otel-collector.yml
 	docker compose -f stack/docker-compose.yml config -q
+	docker compose -f stack/docker-compose.aws.yml config -q
 
 dash: ## open the "Load test vs app" Grafana dashboard for TESTID (or the newest run)
 	@url="$${GRAFANA_URL:-$$(python3 -c "import json; print(json.load(open('k6/config/env/$(TARGET).json')).get('grafanaUrl','http://localhost:3000'))")}"; \

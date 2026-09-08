@@ -64,6 +64,37 @@ What that stack is, how to read a run on the dashboards, and what still differs 
 `docs/monitoring/load-testing.md`,
 section "The load stack".
 
+## Load testing a deployed environment
+
+The application runs on AWS (`../cvhome-platform`); only the monitoring runs here. `stack/docker-compose.aws.yml`
+is the same Prometheus, Grafana, Loki and Tempo as the load stack, with the same rules and dashboards, and no
+platform container, so no image has to be built or pulled.
+
+```bash
+cp k6/config/env/aws.example.json k6/config/env/aws.json    # gitignored; fill from `terraform output` in ../cvhome-platform
+make aws-up                                                 # prometheus, grafana, loki, tempo; waits until they answer
+TARGET=aws make preflight                                   # gateway, uaa, storefront, catalog through spg, prometheus
+TARGET=aws make selftest
+TARGET=aws SELLER_PASSWORD=… FIXTURE_PASSWORD=… make smoke   # passwords are env vars, never in the file
+TARGET=aws make storefront-browse PROFILE=load PEAK_VUS=50
+TARGET=aws make dash                                        # the run on "Load test vs app"
+make aws-down
+```
+
+`aws.json` needs `gatewayUrl` (the console URL), `uaaUrl`, `podId` and `podDomain` (from `terraform output pods`),
+the seeded account usernames — the seeded stores exist only where the flavour sets `test_stores = true` — and
+`rateLimitProfile: default`, because a deployment keeps the 10/60/20 per minute limiter. What differs from the
+local stack:
+
+- **Only the k6 rows of the dashboards draw.** The application panels (`http_server_requests_*`, the `cvhome:*`
+  recording rules) read what the JVMs export to a collector next to this Prometheus; on AWS they export to
+  `aws-otel-collector`, so those numbers live in CloudWatch (`docs/monitoring/porting.md`, and the platform's
+  own CloudWatch dashboard, `terraform output dashboard_url` in `../cvhome-platform`).
+- **`make clean` is the API pass only.** The SQL pass needs the load stack's postgres container; RDS is private,
+  so orders, carts and shoppers the suite created stay until an operator removes them.
+- The preflight's unknown-subdomain check only means something on lcl; it warns on a deployment, which is fine.
+- The two stacks share the host ports, so `make aws-up` and `make stack-up` do not run at the same time.
+
 ## GitHub Actions
 
 `Check` runs for pull requests, pushes to `main`, and manual dispatches. It checks the shell and JSON files,
