@@ -33,8 +33,9 @@ export class CheckoutClient {
   checkout(code, order, headers, expect) {
     return post(this.edge, S, `/api/v1/cart/${code}/checkout`, { name: 'checkout:checkout', body: order, headers, expect: expect || [200, 201] });
   }
-  orderStatus(orderId, headers) {
-    return get(this.edge, S, `/api/v1/order/${orderId}/status`, { name: 'checkout:order-status', headers });
+  /** ref is the order's own reference, from the checkout response; a guest without it gets 404, by design. */
+  orderStatus(orderId, headers, ref) {
+    return get(this.edge, S, `/api/v1/order/${orderId}/status`, { name: 'checkout:order-status', headers, params: { ref } });
   }
   countries() {
     return get(this.edge, S, '/api/v1/country', { name: 'checkout:countries' });
