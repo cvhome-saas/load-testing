@@ -49,7 +49,8 @@ and `stack/monitoring/` the collector, Prometheus rules, Loki, Tempo and Grafana
   requires a signed-in shopper at checkout and defaults to `ar`; `/spg/**` needs both `store` and `pod`; paging is
   `page`+`count`; search `sort` is upper-case (`RELEVANCE|NEWEST|OLDEST`), listing `sort` is a Pageable column
   (`dateAvailable,desc`); the rate limiter is 1000/min locally, 10/60/20 per minute deployed; gateway sessions are
-  in memory.
+  in memory; a guest reads `order/{id}/status` with the order's own `ref` (from the checkout response) and gets a
+  404 without it, so an integer id proves nothing (cvhome-saas/cvhome#340).
 - App-side changes (which metrics a JVM emits, Hikari defaults, an endpoint's shape) belong to `../cvhome`; flag
   them in the README's prerequisites table, do not make them here. What the stack *does* with telemetry — the
   collector pipeline, recording rules, dashboards — is this repo's: change `stack/monitoring/` and run

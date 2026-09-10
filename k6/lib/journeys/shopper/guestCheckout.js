@@ -26,7 +26,8 @@ export function guestCheckout(store, data, opts) {
     ok = order.ok && ok;
     if (order.ok) {
       ordersPlaced.add(1, { store: store.name });
-      if (order.body && order.body.id !== undefined) ok = checkout.orderStatus(order.body.id, o.headers).ok && ok;
+      if (order.body && order.body.id !== undefined)
+        ok = checkout.orderStatus(order.body.id, o.headers, order.body.orderRef).ok && ok;
     }
     return ok;
   });
