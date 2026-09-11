@@ -133,6 +133,12 @@ where the bugs are).
 - Steps: `make stack-down` then `make stack-up`: the `k6-local` store still exists; `make stack-down-hard` then `make stack-up`: it does not
 - Expect: no `cvhome-load-*` containers after either down; volumes `cvhome-load_postgres-data` / `minio-data` only survive the soft down
 
+### 05.5 The stack runs the native images at 512 MB [verified 2026-09-11: native images of cvhome-saas/cvhome#349, smoke 302 requests 0 failed, the four baseline scripts 0 failed, no restart; `docs/baseline.md`]
+- Setup: in `../cvhome`, `./gradlew bootBuildImage -Pnative` (Docker Desktop at 24 GB or more: one native compile peaks near 12 GB), then `docker tag store-pod/catalog:latest store-pod/catalog:native` and so on for the twelve Spring images; spg, console-ui and landing-ui are tagged `:native` as they are
+- Steps: `LOAD_TAG=native LOAD_MEM=512m make stack-up`; `make stack-stats`; `make preflight`; `make smoke`; `make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m`
+- Expect: every Java service UP within seconds of its container starting; each at 90–170 MiB idle, under 350 MiB in the breakpoint; all twelve in Prometheus (`count by (service_name) ({service_name=~".+"})`) — a native image of a version before the telemetry fix exports nothing; smoke as on the JVM images
+- Expected to differ: the JVM gauges (`jvm_heap_after_gc`, `jvm_gc_pause`) are absent and `jvm_cpu` is unreliable for a native service — read `make stack-stats`
+
 ### 05.4 `make monitoring-check` guards the monitoring configuration [verified 2026-09-08: 12 dashboards, 46 rules, tests, collector, compose all pass]
 - Steps: edit a dashboard JSON by hand; `make monitoring-check`
 - Expect: `build-dashboards.mjs --check` fails naming the file; regenerating from the spec makes it pass; promtool rule tests and the collector `validate` pass

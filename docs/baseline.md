@@ -55,3 +55,38 @@ the storefront rows mean, and the emulation caveat, are in `cvhome/extra/monitor
 | mixed-production-mix / load                             | `production-mix-load-20260906T191234Z`   | —                         | —                                     | 0   | none                                              | 3,869 requests, 0 failed on every layer, 31 orders                                                                                       |
 | storefront-breakpoint / breakpoint, MAX_RPS=600         | `breakpoint-breakpoint-20260906T191542Z` | `catalog:product` 6.0 ms  | —                                     | 0   | none — pool 20 %, threads 1 %, heap after GC 19 % | 288,358 requests, 0 failed, 0 dropped, **1,530 app req/s**: the API tier is unaffected by the 1 GB limit                                 |
 | storefront-browse / load, arm64 storefront (experiment) | `browse-load-20260906T195057Z`           | `page:home` 157 ms        | —                                     | 0   | none                                              | 13,935 requests, 0 failed. Same build, same 1 GB limit, native architecture: 17× faster than the emulated image                          |
+
+### JVM vs native images on the load stack (2026-09-11)
+
+cvhome-saas/cvhome#349 can build every Spring service as a GraalVM native executable (`./gradlew bootBuildImage
+-Pnative` in cvhome, same image names). Both sets came from that branch and ran the same scripts, each on a fresh
+stack (`make stack-down-hard`): the JVM images at `LOAD_MEM=1g`, the native ones at `LOAD_MEM=512m` — the size a native
+Fargate task would get. `LOAD_MEM` caps every container, postgres and the monitoring included. The storefront and
+console images are amd64 and emulated on this arm64 host in both runs, so `page:*` is slow in both and left out of the
+worst-name column.
+
+| script / profile                                | image          | testid                                   | k6 p95 (worst API name)      | 5xx | first at 0.8                     | finding                                                                                                           |
+| ----------------------------------------------- | -------------- | ---------------------------------------- | ---------------------------- | --- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| smoke                                           | JVM, 1 GB      | `smoke-smoke-20260911T104007Z`           | `tenancy:signup` 866 ms      | 0   | —                                | 304 requests, 0 failed                                                                                            |
+| smoke                                           | native, 512 MB | `smoke-smoke-20260911T125312Z`           | `cua:login` 563 ms           | 0   | —                                | 302 requests, 0 failed — the same one `spg:domain-lookup` check as the JVM (the new fixture host, not yet cached) |
+| storefront-browse / load, 30 VUs, 3m            | JVM, 1 GB      | `browse-load-20260911T104049Z`           | `catalog:search` 25 ms       | 0   | none — catalog pool 20 %         | 9,965 requests, 0 failed; `catalog:listing` 10.0 ms, `catalog:product` 11.0 ms                                    |
+| storefront-browse / load, 30 VUs, 3m            | native, 512 MB | `browse-load-20260911T125349Z`           | `catalog:search` 25 ms       | 0   | none                             | 9,726 requests, 0 failed; `catalog:listing` 11.1 ms, `catalog:product` 11.5 ms — the JVM's numbers                |
+| shopper-guest-checkout / load, 3m               | JVM, 1 GB      | `guest-checkout-load-20260911T104715Z`   | `seller:login-submit` 270 ms | 0   | none                             | 730 requests, 0 failed; `checkout:checkout` 61 ms                                                                 |
+| shopper-guest-checkout / load, 3m               | native, 512 MB | `guest-checkout-load-20260911T130017Z`   | `seller:login-submit` 255 ms | 0   | none                             | 730 requests, 0 failed; `checkout:checkout` 30 ms                                                                 |
+| mixed-production-mix / load, 3m                 | JVM, 1 GB      | `production-mix-load-20260911T105038Z`   | `seller:login-submit` 282 ms | 0   | none                             | 3,911 requests, 0 failed on every layer; `catalog:search` 24 ms                                                   |
+| mixed-production-mix / load, 3m                 | native, 512 MB | `production-mix-load-20260911T130339Z`   | `seller:login-submit` 262 ms | 0   | none                             | 3,840 requests, 0 failed; **`catalog:search` 89 ms** — 24 ms on the JVM, and equal to it in browse: open          |
+| storefront-breakpoint / breakpoint, MAX_RPS=600 | JVM, 1 GB      | `breakpoint-breakpoint-20260911T105404Z` | `catalog:product` 18 ms      | 0   | none — catalog pool 30 %         | 146,309 requests, 0 failed, 24 dropped (k6 out of VUs at ~490 iterations/s), 885 app req/s peak                   |
+| storefront-breakpoint / breakpoint, MAX_RPS=600 | native, 512 MB | `breakpoint-breakpoint-20260911T130706Z` | `catalog:product` 19 ms      | 0   | catalog pool 0.8 at ~1,190 req/s | 168,858 requests, 0 failed, 12 dropped: further into the ramp than the JVM; 1,187 app req/s peak                  |
+
+Per service, all twelve starting at once: 4.4–10.2 s on the JVM, 0.3–2.2 s native. Memory at peak, from
+`make stack-stats` every 10 s: 259–496 MiB per JVM service (4,475 MiB for the twelve) against 118–345 MiB native
+(2,284 MiB); no restart and no OOM kill in either run. Natively the JVM gauges are absent (`jvm_heap_after_gc`,
+`jvm_gc_pause`) and `jvm_cpu` is not trustworthy (merchant read 1.0 while nearly idle): use `make stack-stats` for a
+native service's CPU.
+
+Two native runs before these found what a native image needs that the JVM does not, all fixed in #349: records kept
+as JSON columns and generic list elements not registered for Jackson (every storefront banner read answered 500),
+Spring Data JDBC's generated repositories mapping DTO queries onto the entity, a `ResourceBundle` a native image did not
+carry, telemetry frozen off at build time (no service in Prometheus), and a `@Cacheable` store lookup that was never
+proxied — merchant served 190 req/s natively against 7.6 on the JVM and catalog's list reads were 3–7× slower until
+it was.

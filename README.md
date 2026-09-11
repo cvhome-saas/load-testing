@@ -46,7 +46,9 @@ The stack is `stack/docker-compose.yml`: every platform service as the image `bo
 container each, 1 GB each (`LOAD_MEM`), plus postgres, minio, spg and the monitoring five (otel-collector, loki,
 tempo, prometheus, grafana). Telemetry is on by default. **Images are a pre-step, never built here**:
 `./gradlew bootBuildImage` in `../cvhome` (tags `latest`), or `LOAD_REGISTRY=… LOAD_TAG=2.0.0` to pull a
-released version. The ports, hostnames and seeded stores are the platform's local defaults, so `TARGET=local`
+released version. `./gradlew bootBuildImage -Pnative` builds the twelve Spring services as GraalVM native executables
+under the same names; tag them apart (`:native`) and run `LOAD_TAG=native LOAD_MEM=512m make stack-up` — the native
+numbers, and what differs, are in `docs/baseline.md`. The ports, hostnames and seeded stores are the platform's local defaults, so `TARGET=local`
 needs nothing else; `make hosts` prints the `/etc/hosts` lines a browser on this machine needs.
 
 ```bash
