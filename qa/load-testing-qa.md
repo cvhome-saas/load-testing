@@ -8,7 +8,7 @@ land, and removing what the suite created.
   fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
 - **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
   `make stack-up` (the platform's prebuilt images plus Prometheus, Grafana, collector, Tempo; telemetry on by default).
-- **Cases** — 9 (0 verified, 9 not verified)
+- **Cases** — 14 (5 verified, 9 not verified)
 - **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
   reading a run; `docs/coverage.md` for which endpoint each client method hits.
 
@@ -142,3 +142,9 @@ where the bugs are).
 ### 05.4 `make monitoring-check` guards the monitoring configuration [verified 2026-09-08: 12 dashboards, 46 rules, tests, collector, compose all pass]
 - Steps: edit a dashboard JSON by hand; `make monitoring-check`
 - Expect: `build-dashboards.mjs --check` fails naming the file; regenerating from the spec makes it pass; promtool rule tests and the collector `validate` pass
+
+### 05.6 Every infra and monitoring image still pulls from its registry [verified 2026-09-12: all seven pulled; minio from quay.io started under the stack's own definition, 1 GiB limit, bucket created]
+- Why: an image the stack does not build can vanish from its registry. Docker Hub stopped serving `minio/minio` (an anonymous manifest fetch answers 401), so `make stack-up` failed on any host without it cached; the stack now pulls the same release from `quay.io/minio/minio`, with the same index digest (`sha256:13582eff…d883`) and the same pin as cvhome's `docker-compose-lcl.yml`
+- Steps: `docker compose -p cvhome-load-verify -f stack/docker-compose.yml pull postgres minio otel-collector loki tempo prometheus grafana`; then, with nothing on port 9000 needed, `docker compose -p cvhome-load-verify -f stack/docker-compose.yml run -d --rm --no-deps --name cvhome-load-verify-minio minio` and `docker exec cvhome-load-verify-minio sh -c 'mc alias set local http://localhost:9000 minioadmin minioadmin && mc ready local'`; finally `docker rm -f cvhome-load-verify-minio` and `docker compose -p cvhome-load-verify -f stack/docker-compose.yml down -v`
+- Expect: every pull ends `Pulled`; MinIO reports `The cluster 'local' is ready`; nothing named `cvhome-load-verify*` left behind
+- Not covered: the platform's own images (`store-core/*`, `store-pod/*`), which are a local pre-step or come from `LOAD_REGISTRY`
