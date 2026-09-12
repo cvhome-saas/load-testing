@@ -97,7 +97,9 @@ services:
       - postgres-data:/var/lib/postgresql/data
   minio:
     <<: *limits
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
+    # quay.io, not Docker Hub: Docker Hub no longer serves minio/minio. Same release, same image digest. The pin
+    # matches cvhome's docker-compose-lcl.yml and its Testcontainers MinioTestConfiguration.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
