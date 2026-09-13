@@ -1,0 +1,27 @@
+{
+  "_comment": "dev on AWS, committed by the owner's decision: the seeded test stores (test_stores = true) and their demo passwords, the same as local.json. SELLER_PASSWORD / SHOPPER_PASSWORD still override them. Another deployment copies aws.example.json to its own gitignored <env>.json.",
+  "name": "dev",
+  "gatewayUrl": "https://dev.asrevo.click",
+  "uaaUrl": "https://uaa.dev.asrevo.click",
+  "podId": "507f1f77bcf86cd799439011",
+  "podDomain": "spg-507f1f77.dev.asrevo.click",
+  "lang": "en",
+  "prometheusUrl": "http://localhost:9090/api/v1/write",
+  "grafanaUrl": "http://localhost:3000",
+  "rateLimitProfile": "default",
+  "hosts": {},
+  "stores": [
+    {
+      "name": "org1-store2",
+      "id": "65f023632bc46470c104b75f",
+      "org": "21f023932bc66470c104b76f",
+      "url": "https://org1-store2.spg-507f1f77.dev.asrevo.click",
+      "requireLogin": false,
+      "defaultLang": "en"
+    }
+  ],
+  "accounts": {
+    "orgAdmin": { "username": "org1-admin", "password": "admin", "role": "ORG_ADMIN" },
+    "superAdmin": { "username": "super-admin", "password": "admin", "role": "SUPER_ADMIN" }
+  }
+}
