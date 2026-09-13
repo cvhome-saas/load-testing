@@ -9,6 +9,8 @@ export class GatewayClient {
 
   console() { return get(this.edge, '', '/', { name: 'gateway:console' }); }
   signIn() { return get(this.edge, '', '/sign-in', { name: 'gateway:sign-in' }); }
+  /** the store settings screen; client-rendered (`store-management/**` in app.routes.server.ts), so the shell only */
+  storeManagement() { return get(this.edge, '', '/store-management/domain', { name: 'gateway:store-management' }); }
   health() { return get(this.edge, '', '/actuator/health', { name: 'gateway:health' }); }
 
   // Acting as a merchant (cvhome#330): the gateway exchanges the operator's token at uaa for the merchant's
