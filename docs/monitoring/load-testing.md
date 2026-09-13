@@ -7,7 +7,8 @@ How a k6 run from this repo shows up here, and how to turn it into findings.
 - Start the stack: `make stack-up` (the platform's built images plus monitoring, `stack/docker-compose.yml`; telemetry is on by default).
 - From `load-testing`: `make preflight` (is everything answering, is Prometheus ready) then the script:
   `make storefront-browse PROFILE=load PEAK_VUS=50`, `make shopper-guest-checkout PROFILE=load RATE=60 DURATION=10m`,
-  `make mixed-production-mix PROFILE=load`, `make storefront-breakpoint` (ramps until an SLO breaks and aborts).
+  `make mixed-production-mix PROFILE=load`, `make storefront-breakpoint` (ramps until an SLO breaks and aborts),
+  `make storefront-page-breakpoint STORES=org1-store2` (landing-ui's knee), `make platform-sign-in-burst PROFILE=load`.
 - `bin/k6run` tags every sample with a `testid` (`<script>-<profile>-<utc>`), streams it to Prometheus, and posts a
   Grafana annotation at start and end so the run is a shaded region on every dashboard.
 
@@ -51,9 +52,11 @@ JVM & Runtime (GC/heap during a soak). The fix goes in the application; the numb
 
 - **smoke** proves contracts, not latency: every journey once. Use it to check the dashboards have data.
 - **load** is the baseline: the numbers to record.
-- **stress / spike** loosen the SLO multipliers (2×/3×): they answer "does it degrade gracefully" — watch for 5xx and pool timeouts, not p95.
-- **soak** runs for hours: read JVM & Runtime *Heap after GC* (a rising floor is a leak), *Cache size*, gateway sessions, file descriptors.
-- **breakpoint** ramps until a threshold breaks and aborts: the annotation end is the knee; the saturation strip at that moment is the bottleneck.
+- **load** holds its peak for `DURATION` (5 min): long enough for a deployed autoscaler, which needs 3–6 min to add a task, to act.
+- **stress / spike** loosen the SLO multipliers (2×/3×): they answer "does it degrade gracefully" — watch for 5xx and pool timeouts, not p95. A spike of storefront-browse or production-mix also runs a **recovery probe**: one home page every 3 s from the start, and a `recovery` scenario from 20 s after the spike ends, held to the plain page SLO (`http_req_duration{scenario:recovery}`). A system that never recovers fails there.
+- **soak** holds for `SOAK_DURATION` (30 min): read JVM & Runtime *Heap after GC* (a rising floor is a leak), *Cache size*, gateway sessions, file descriptors. The verdict adds each container's working-set growth after a 5-minute warm-up and fails above 10 % of its limit per hour.
+- **breakpoint** ramps until a threshold breaks and aborts: the annotation end is the knee; the saturation strip at that moment is the bottleneck. `storefront-page-breakpoint` is the storefront's: it ramps full page views (landing-ui renders each) to `PAGE_MAX_RPS` (20/s) and aborts when a page misses its 3 s SLO, where `storefront-breakpoint` ramps two catalog APIs and never a page.
+- **sign-ins**: `platform-sign-in-burst` paces seller sign-ins at dev's pace, 9 a minute under its 10/min limiter (`SIGNIN_RATE`; locally the limiter allows 1000/min and never binds, and a quarter-vCPU uaa is the limit) and names each hop (`seller:login-submit`, the password check; `-authorize`; `-callback`); the verdict prints uaa's CPU per sign-in.
 
 ## Correlating names
 

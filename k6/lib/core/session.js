@@ -3,6 +3,7 @@
  * Seller (console) sessions. The gateway is an OAuth2 client of uaa and holds the session in memory:
  *   GET  /oauth2/authorization/uaa   → redirects through /uaa/oauth2/authorize, plants XSRF-TOKEN, lands on the console sign-in
  *   POST /uaa/login  username,password,_csrf   → uaa resumes the authorize request → gateway sets STORE-CORE-GATEWAY-JSESSIONID
+ *   (named per hop: seller:login-start, seller:login-submit, seller:login-authorize, seller:login-callback)
  *
  * The login endpoint is rate-limited on deployed targets (10/min per realm and address), so load scripts log a
  * small pool in at setup() and VUs share the cookie values; a VU never logs in on its own inside a load loop.
@@ -18,6 +19,14 @@ const TAG = (name) => ({ tags: { name, layer: 'platform', store: 'none' } });
 function cookie(jar, name) {
   const all = jar.cookiesForURL(`${config.gatewayUrl}/`);
   return all[name] ? all[name][0] : null;
+}
+
+/** The next hop of a redirect chain as its own named request; null when `res` is not a redirect. */
+function follow(res, name) {
+  if (!res || res.status < 300 || res.status >= 400 || !res.headers.Location) return null;
+  const location = res.headers.Location;
+  const url = /^https?:\/\//.test(location) ? location : `${res.url.match(/^https?:\/\/[^/]+/)[0]}${location}`;
+  return http.get(url, Object.assign({ redirects: 0 }, TAG(name)));
 }
 
 /** Logs in through the gateway. Returns { username, role, cookie } or null. Uses this VU's cookie jar. */
@@ -45,10 +54,12 @@ export function login(account) {
   }
 
   // POST /uaa/login → 302 authorize?continue → 302 /login/oauth2/code/uaa?code= → the gateway sets the session
-  // and 302s to the console. Two redirects land exactly on the gateway's callback response.
+  // and 302s to the console. Each hop is its own named request, so a slow sign-in says where it is slow: the password
+  // check (submit), uaa resuming the authorize request (authorize) or the gateway's code exchange (callback).
   const submit = http.post(`${config.gatewayUrl}/uaa/login`, {
     username: account.username, password: account.password, _csrf: xsrf,
-  }, Object.assign({ redirects: 2 }, TAG('seller:login-submit')));
+  }, Object.assign({ redirects: 0 }, TAG('seller:login-submit')));
+  follow(follow(submit, 'seller:login-authorize'), 'seller:login-callback');
   const session = cookie(jar, SESSION_COOKIE);
   const ok = check(submit, {
     'seller:login-submit 302': (r) => r.status === 302 || r.status === 200,

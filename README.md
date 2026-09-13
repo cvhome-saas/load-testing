@@ -163,35 +163,39 @@ script that picks a journey and a profile.
 
 `make <layer>-<name>`; every one honours `PROFILE`, `TARGET`, `RUN_ID` and the knobs in `make knobs`.
 
-| layer      | script               | model                          | what it exercises                                                                             | writes       |
-| ---------- | -------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- | ------------ |
-| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search                            | —            |
-| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                  | —            |
-| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                            | —            |
-| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                       | —            |
-| storefront | soak                 | constant VUs for DURATION      | the browse journey for hours: leaks, pools, caches                                            | —            |
-| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                    | carts        |
-| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                            | orders       |
-| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                              | orders       |
-| shopper    | registration         | open                           | cua registration bursts                                                                       | shoppers     |
-| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                              | orders       |
-| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                 | —            |
-| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it | —            |
-| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete        | orgs, stores |
-| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                | products     |
-| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                          | pages        |
-| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                         | —            |
-| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                          | —            |
-| platform   | gateway-login        | open, ≤ limiter                | the two-hop sign-in; in-memory session growth                                                 | sessions     |
-| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                 | —            |
-| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                        | —            |
-| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                          | —            |
-| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                         | orders       |
-| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                             | shoppers     |
-| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                              | —            |
-| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                    | yes          |
+| layer      | script               | model                          | what it exercises                                                                                | writes       |
+| ---------- | -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------ |
+| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search; spike adds a recovery probe  | —            |
+| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                     | —            |
+| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                               | —            |
+| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                          | —            |
+| storefront | page-breakpoint      | ramping rate to PAGE_MAX_RPS   | full page views (home, category, product, search) until a page misses its SLO: landing-ui's knee | —            |
+| storefront | soak                 | constant VUs for SOAK_DURATION | the browse journey for 30 min+: leaks, pools, caches; the verdict reads the memory slope         | —            |
+| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                       | carts        |
+| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                               | orders       |
+| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                                 | orders       |
+| shopper    | registration         | open                           | cua registration bursts                                                                          | shoppers     |
+| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                                 | orders       |
+| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                    | —            |
+| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it    | —            |
+| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete           | orgs, stores |
+| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                   | products     |
+| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                             | pages        |
+| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                            | —            |
+| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                             | —            |
+| platform   | gateway-login        | open, ≤ limiter                | the sign-in, timed per hop; in-memory session growth                                             | sessions     |
+| platform   | sign-in-burst        | open, under the limiter        | sign-ins at dev's pace (9/min, SIGNIN_RATE): uaa's cost per sign-in, per hop                     | sessions     |
+| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                    | —            |
+| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                           | —            |
+| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                             | —            |
+| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                            | orders       |
+| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                                | shoppers     |
+| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                                 | —            |
+| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                       | yes          |
 
-Profiles: `smoke` (1 iteration), `load`, `stress` (2–3×), `spike` (10× for a minute), `soak` (DURATION),
+Profiles: `smoke` (1 iteration), `load` (holds `DURATION`, 5 min, so a deployed autoscaler has time to act),
+`stress` (2–3×), `spike` (10× for a minute, then two at base; storefront-browse and production-mix add a recovery
+probe that must be back inside the page SLO 20 s after the spike), `soak` (`SOAK_DURATION`, 30 min),
 `breakpoint` (ramping rate, thresholds abort). Thresholds are per layer in `k6/config/thresholds.js`; the starting
 numbers are for the local stack and should be tightened per target once a baseline exists.
 
