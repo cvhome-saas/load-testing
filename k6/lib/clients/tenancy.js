@@ -22,6 +22,7 @@ export class TenancyClient {
   }
   themes() { return get(this.edge, S, `${SM}/public/themes`, { name: 'tenancy:themes' }); }
   colorThemes() { return get(this.edge, S, `${SM}/public/color-themes`, { name: 'tenancy:color-themes' }); }
+  socialLinkProviders() { return get(this.edge, S, `${SM}/public/social-links-providers`, { name: 'tenancy:social-link-providers' }); }
 
   // ── stores ────────────────────────────────────────────────────────────────
   /** what the console's store list calls: query = {} or { pod: {id}, name } */

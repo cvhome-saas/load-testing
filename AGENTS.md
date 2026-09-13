@@ -22,7 +22,8 @@ and `stack/monitoring/` the collector, Prometheus rules, Loki, Tempo and Grafana
   `request()` from `lib/core/http.js` with a stable `name` tag (`service:endpoint`, never an id in it) and the
   statuses it expects. Never call `k6/http` directly outside `lib/core`.
 - **Every knob is declared** in `lib/core/env.js` (`SCHEMA`): default, type, one-line doc. Scripts never read
-  `__ENV`. Deployment facts live in `k6/config/env/<TARGET>.json`; only `local.json` is committed.
+  `__ENV`. Deployment facts live in `k6/config/env/<TARGET>.json`; `local.json` and `aws.json` (dev, with its seeded
+  demo passwords) are committed, any other deployment's file stays local.
 - **SLO numbers live in `k6/config/thresholds.js`**, load shapes in `k6/config/profiles.js`, traffic ratios in
   `k6/config/mix.js`. A script adds only journey-specific thresholds.
 - **Fixtures are declared, not scripted**: `build({ needs: ['store','catalog','sessions','shoppers'] })` and

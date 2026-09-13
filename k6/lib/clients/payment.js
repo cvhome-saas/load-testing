@@ -13,6 +13,10 @@ export class PaymentClient {
   supportedPaymentTypes(storeId) {
     return get(this.edge, S, `/api/v1/public/payment-configuration/${storeId}/supported-payment-types`, { name: 'payment:supported-types' });
   }
+  /** the console's list (store settings), the seller-side twin of supportedPaymentTypes */
+  privateSupportedPaymentTypes() {
+    return get(this.edge, S, '/api/v1/private/payment-configuration/supported-payment-types', { name: 'payment:supported-types-private' });
+  }
   configurations() {
     return get(this.edge, S, '/api/v1/private/payment-configuration', { name: 'payment:configurations' });
   }

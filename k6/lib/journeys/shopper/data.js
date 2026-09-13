@@ -16,13 +16,14 @@ export function catalogFor(store, fixtures) {
       contentPages: (fixtures.pages || []).map((p) => p.slug),
     };
   }
+  const s = seed.forStore(store.name);
   return {
-    categories: seed.categories,
-    productSlugs: seed.productSlugs,
-    skus: seed.skus,
-    productGroups: seed.productGroups,
-    searchTerms: seed.searchTerms,
-    contentPages: seed.contentPages,
+    categories: s.categories,
+    productSlugs: s.productSlugs,
+    skus: s.skus,
+    productGroups: s.productGroups,
+    searchTerms: s.searchTerms,
+    contentPages: s.contentPages,
   };
 }
 

@@ -73,17 +73,19 @@ is the same Prometheus, Grafana, Loki and Tempo as the load stack, with the same
 platform container, so no image has to be built or pulled.
 
 ```bash
-cp k6/config/env/aws.example.json k6/config/env/aws.json    # gitignored; fill from `terraform output` in ../cvhome-platform
 make aws-up                                                 # prometheus, grafana, loki, tempo; waits until they answer
 TARGET=aws make preflight                                   # gateway, uaa, storefront, catalog through spg, prometheus
-TARGET=aws make selftest
-TARGET=aws SELLER_PASSWORD=… FIXTURE_PASSWORD=… make smoke   # passwords are env vars, never in the file
-TARGET=aws make storefront-browse PROFILE=load PEAK_VUS=50
+TARGET=aws STORES=org1-store2 make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m
+TARGET=aws STORES=org1-store2 make admin-store-settings PROFILE=load PEAK_VUS=10 DURATION=3m
 TARGET=aws make dash                                        # the run on "Load test vs app"
 make aws-down
 ```
 
-`aws.json` needs `gatewayUrl` (the console URL), `uaaUrl`, `podId` and `podDomain` (from `terraform output pods`),
+`k6/config/env/aws.json` is dev (`https://dev.asrevo.click`), committed with its one seeded store, org1-store2 (so
+`STORES=org1-store2`), and the seeded demo passwords, the same as `local.json` (`SELLER_PASSWORD` /
+`SHOPPER_PASSWORD` still override them). `TARGET=aws` needs no setup, locally or as the `target` of `Run k6 tests`.
+Another deployment copies `aws.example.json` to its own `<env>.json`, which stays gitignored, and passes its
+passwords as env vars. A deployment file needs `gatewayUrl` (the console URL), `uaaUrl`, `podId` and `podDomain` (from `terraform output pods`),
 the seeded account usernames — the seeded stores exist only where the flavour sets `test_stores = true` — and
 `rateLimitProfile: default`, because a deployment keeps the 10/60/20 per minute limiter. What differs from the
 local stack:
@@ -113,13 +115,13 @@ checksum-pinned official binaries. Node 20.19 or newer (CI uses Node 24).
 reads these optional GitHub Actions variables and secrets; an unset or empty value falls back to the selected
 `k6/config/env/<TARGET>.json` file or the default declared in `k6/lib/core/env.js`:
 
-| Actions value | Kind | Fallback |
-| --- | --- | --- |
-| `GATEWAY_URL`, `UAA_URL`, `POD_DOMAIN`, `POD_ID` | variable | selected target file |
-| `PROMETHEUS_URL` | variable | selected target file; only used when **Publish metrics** is enabled |
-| `K6_RUNNER` | variable | `ubuntu-latest`; use a self-hosted runner label for private/local URLs |
-| `SELLER_PASSWORD`, `SHOPPER_PASSWORD` | secret | selected target file |
-| `FIXTURE_PASSWORD` | secret | `K6-load-test-1` |
+| Actions value                                    | Kind     | Fallback                                                               |
+| ------------------------------------------------ | -------- | ---------------------------------------------------------------------- |
+| `GATEWAY_URL`, `UAA_URL`, `POD_DOMAIN`, `POD_ID` | variable | selected target file                                                   |
+| `PROMETHEUS_URL`                                 | variable | selected target file; only used when **Publish metrics** is enabled    |
+| `K6_RUNNER`                                      | variable | `ubuntu-latest`; use a self-hosted runner label for private/local URLs |
+| `SELLER_PASSWORD`, `SHOPPER_PASSWORD`            | secret   | selected target file                                                   |
+| `FIXTURE_PASSWORD`                               | secret   | `K6-load-test-1`                                                       |
 
 ## How it is built
 
@@ -152,32 +154,33 @@ script that picks a journey and a profile.
 
 `make <layer>-<name>`; every one honours `PROFILE`, `TARGET`, `RUN_ID` and the knobs in `make knobs`.
 
-| layer | script | model | what it exercises | writes |
-| --- | --- | --- | --- | --- |
-| storefront | browse | closed (PEAK_VUS) | SSR home/category/product + the API reads behind them, some search | — |
-| storefront | search | open (RATE) | suggest, full-text with facets, sorted pages | — |
-| storefront | content | open | site, menus, banners, policies, faq, posts, layout | — |
-| storefront | breakpoint | ramping rate to MAX_RPS | product + availability until an SLO breaks, then aborts | — |
-| storefront | soak | constant VUs for DURATION | the browse journey for hours: leaks, pools, caches | — |
-| shopper | cart | open | cart create / add / read / change / remove | carts |
-| shopper | guest-checkout | open | cart → checkout page reads → COD or MANUAL_TRANSFER order → status | orders |
-| shopper | account | open, low | PKCE sign-in, purchase with the token, my orders | orders |
-| shopper | registration | open | cua registration bursts | shoppers |
-| shopper | inventory-contention | open, high | everyone buys the same sku: row locks on reserve | orders |
-| admin | store-reads | closed | store list/detail/info, billing state, themes | — |
-| admin | store-lifecycle | open, low | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete | orgs, stores |
-| admin | catalog-management | open | category, product, price/stock, inline toggle, listing, delete | products |
-| admin | content-management | open | pages, and the HOME layout's optimistic versioning under concurrency | pages |
-| admin | orders-list | closed | the orders screen, filters, one order, payment ledger | — |
-| admin | platform-reads | closed | pods, users, roles, plans, subscriptions, statistics | — |
-| platform | gateway-login | open, ≤ limiter | the two-hop sign-in; in-memory session growth | sessions |
-| platform | spg-domain-lookup | open | known and unknown storefront hosts through spg's domain cache | — |
-| platform | uaa-public | open | sign-in settings, idps, jwks, discovery, cua authorize | — |
-| platform | rate-limit-probe | fixed | pushes a public POST past its window: 429, never 5xx | — |
-| browser | shopper-checkout | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals | orders |
-| browser | shopper-auth | Chromium | register and sign in through cua's hand-off pages | shoppers |
-| browser | browse | Chromium | home, search, category, product: LCP / CLS / INP | — |
-| mixed | production-mix | seven scenarios at once | a normal day, ratios in `k6/config/mix.js` | yes |
+| layer      | script               | model                          | what it exercises                                                                             | writes       |
+| ---------- | -------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- | ------------ |
+| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search                            | —            |
+| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                  | —            |
+| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                            | —            |
+| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                       | —            |
+| storefront | soak                 | constant VUs for DURATION      | the browse journey for hours: leaks, pools, caches                                            | —            |
+| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                    | carts        |
+| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                            | orders       |
+| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                              | orders       |
+| shopper    | registration         | open                           | cua registration bursts                                                                       | shoppers     |
+| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                              | orders       |
+| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                 | —            |
+| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it | —            |
+| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete        | orgs, stores |
+| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                | products     |
+| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                          | pages        |
+| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                         | —            |
+| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                          | —            |
+| platform   | gateway-login        | open, ≤ limiter                | the two-hop sign-in; in-memory session growth                                                 | sessions     |
+| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                 | —            |
+| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                        | —            |
+| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                          | —            |
+| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                         | orders       |
+| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                             | shoppers     |
+| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                              | —            |
+| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                    | yes          |
 
 Profiles: `smoke` (1 iteration), `load`, `stress` (2–3×), `spike` (10× for a minute), `soak` (DURATION),
 `breakpoint` (ramping rate, thresholds abort). Thresholds are per layer in `k6/config/thresholds.js`; the starting
@@ -223,10 +226,10 @@ alerts, runbooks, `load-testing.md` (how a run shows up and how to turn it into 
 
 ## Prerequisites on the application side (not done here)
 
-| change | where in `../cvhome` | why |
-| --- | --- | --- |
-| build the images (`./gradlew bootBuildImage`) | — | the stack runs them; it never builds |
-| Hikari pool size | `LOAD_POOL_SIZE` here (default 10) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
+| change                                        | where in `../cvhome`                                                        | why                                    |
+| --------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
+| build the images (`./gradlew bootBuildImage`) | —                                                                           | the stack runs them; it never builds   |
+| Hikari pool size                              | `LOAD_POOL_SIZE` here (default 10) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
 
 JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
 `../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.

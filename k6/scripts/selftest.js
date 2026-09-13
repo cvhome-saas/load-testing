@@ -113,6 +113,7 @@ function seller(store) {
 
   expect.soft(gateway.console().status).toEqual(200);   // console-ui's dev server; not load-bearing for the APIs
   expect.soft(gateway.signIn().status).toEqual(200);
+  expect.soft(gateway.storeManagement().status).toEqual(200);
   expect.soft(gateway.health().status).toEqual(200);
   expect.soft(uaa.me().status).toEqual(200);
   expect.soft(uaa.account().status).toEqual(200);
@@ -123,6 +124,7 @@ function seller(store) {
   expect.soft(tenancy.saasProperties().status).toEqual(200);
   expect.soft(tenancy.themes().status).toEqual(200);
   expect.soft(tenancy.colorThemes().status).toEqual(200);
+  expect.soft(tenancy.socialLinkProviders().status).toEqual(200);
   expect.soft(tenancy.listStores({}).status).toEqual(200);
   expect.soft(tenancy.stores().status).toEqual(200);
   expect.soft(tenancy.storeInfo(store.id).status).toEqual(200);
@@ -159,6 +161,8 @@ function seller(store) {
   expect.soft(content.summary().status).toEqual(200);
   expect.soft(checkout.orders().status).toEqual(200);
   expect.soft(new C.PaymentClient(pod).transactions().status).toEqual(200);
+  expect.soft(new C.PaymentClient(pod).privateSupportedPaymentTypes().status).toEqual(200);
+  expect.soft(new C.PaymentClient(pod).configurations().status).toEqual(200);
   expect.soft(new C.CuaClient(pod).shoppers().ok).toBeTruthy();
 }
 
