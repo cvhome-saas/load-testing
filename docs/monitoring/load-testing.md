@@ -23,6 +23,15 @@ The page is one time axis, k6 on top, the application underneath:
 | *What the application did* | Server-side rate, p95 and 5xx per service, and the service-to-service failure share. If k6 p95 is high but app p95 is low, the time is in spg / landing-ui / the network (Edge dashboard). |
 | *What ran out* | Every ceiling as a share on one axis — request threads, database pool, CPU, GC — plus pool waiting, SQL cost and heap. **The first line to reach 0.8 is the bottleneck of this run.** On the load stack, every container against its AWS-sized cap (cAdvisor): *Container CPU against its cap*, *CPU throttling*, *Memory against the limit*, *Containers in this run* (peaks, OOM kills, restarts), and *landing-ui event loop and heap*. |
 
+**The verdict.** `bin/k6run` ends every run but a smoke with `scripts/verdict.mjs` (`make verdict TESTID=…` runs it
+again later): per container, the CPU cap, peak CPU against it, how long it stayed at 90 % or more (and the longest
+stretch), the share of CPU periods throttled, the memory limit and peak memory against it, OOM kills and restarts; then
+landing-ui's CPU per page view (and uaa's per sign-in) in ms of a Fargate vCPU, the number dev's CloudWatch arithmetic
+gives. It fails the run on the budgets in `k6/config/budgets.js`: 90 % of a cap for more than a minute in one stretch,
+memory above 85 % of the limit, any OOM kill or restart, landing-ui above its CPU per page; a soak also fails when a
+working set keeps growing after warm-up. The result is also in `results/<testid>.verdict.json`. Against a deployed
+target there is no container to read here; `make aws-report` reads ECS instead.
+
 **The knee.** On Bottlenecks → *Traffic vs p95*, the request rate flattens while p95 climbs: that is the capacity of
 the system as configured. The saturation strip at that moment names the resource.
 

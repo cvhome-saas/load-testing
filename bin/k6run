@@ -5,6 +5,11 @@
 #   bin/k6run k6/scripts/shopper/guest-checkout.js            PROFILE=load TARGET=local bin/k6run ...
 #   NO_PROM=1 bin/k6run ...                                   skip the remote-write output (results/*.json only)
 #   NO_GRAFANA=1 bin/k6run ...                                skip the Grafana run annotation
+#   NO_VERDICT=1 bin/k6run ...                                skip the verdict (scripts/verdict.mjs) after the run
+#
+# After the run, the verdict reads what it used of every load-stack container (CPU against its cap, memory against its
+# limit, OOM kills, restarts, CPU per page view) and judges it against k6/config/budgets.js; a failed budget fails the
+# run like a failed threshold. Smoke runs skip it unless VERDICT=1: a smoke proves contracts, not capacity.
 #
 # Every run is also a Grafana annotation (tags k6, testid:<id>, profile:<p>, layer:<l>) from start to end, so the
 # run is a shaded region on every dashboard and the Load test vs app dashboard can be opened on it (`make dash`).
@@ -55,5 +60,14 @@ export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f7
 
 mkdir -p results
 echo "k6run  script=$script  layer=$layer  profile=$PROFILE  target=$TARGET  run_id=$RUN_ID  testid=$TESTID ${out[*]+${out[*]}}"
-# Not exec: the EXIT trap has to run after k6 finishes to close the annotation region.
-k6 run ${out[@]+"${out[@]}"} --tag "testid=$TESTID" --tag "layer=$layer" --tag "target=$TARGET" "$@" "$script"
+# Not exec: the annotation region closes when k6 finishes, and the verdict reads the run after it.
+started="$(date +%s)"
+rc=0
+k6 run ${out[@]+"${out[@]}"} --tag "testid=$TESTID" --tag "layer=$layer" --tag "target=$TARGET" "$@" "$script" || rc=$?
+ended="$(date +%s)"
+close_annotation
+trap - EXIT
+if [ -z "${NO_VERDICT:-}" ] && [ ${#out[@]} -gt 0 ] && { [ "$PROFILE" != "smoke" ] || [ -n "${VERDICT:-}" ]; }; then
+  VERDICT_FROM="$started" VERDICT_TO="$ended" node scripts/verdict.mjs "$TESTID" || { vrc=$?; [ "$rc" -eq 0 ] && rc=$vrc; }
+fi
+exit "$rc"

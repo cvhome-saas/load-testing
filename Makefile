@@ -10,7 +10,7 @@ TARGET := $(if $(TARGET),$(TARGET),local)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict \
         stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
         aws-up aws-down aws-ps \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
@@ -109,10 +109,17 @@ monitoring-check: ## dashboards match their spec and docs; Prometheus rules, con
 	docker compose -f stack/docker-compose.yml config -q
 	docker compose -f stack/docker-compose.aws.yml config -q
 
+# the newest run's testid: results/<testid>.json, not the verdict's or the page budget's side files
+NEWEST = ls -t results/*.json 2>/dev/null | grep -v -e '\.verdict\.json$$' -e '/page-budget-' | head -1 | xargs -n1 basename 2>/dev/null | sed 's/\.json$$//'
+
 dash: ## open the "Load test vs app" Grafana dashboard for TESTID (or the newest run)
 	@url="$${GRAFANA_URL:-$$(python3 -c "import json; print(json.load(open('k6/config/env/$(TARGET).json')).get('grafanaUrl','http://localhost:3000'))")}"; \
-	 testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$(ls -t results/*.json 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null | sed 's/\.json$$//')"; \
+	 testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
 	 link="$$url/d/cvhome-load-test-vs-app?var-testid=$$testid&from=now-3h&to=now"; echo "$$link"; (command -v open >/dev/null && open "$$link") || true
+
+verdict: ## what a run used of every load-stack container, against k6/config/budgets.js (TESTID, or the newest run)
+	@testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
+	 [ -n "$$testid" ] || { echo "no TESTID and no results/*.json"; exit 2; }; node scripts/verdict.mjs "$$testid"
 
 # one target per script: k6/scripts/<layer>/<name>.js -> make <layer>-<name>
 define SCRIPT_RULE

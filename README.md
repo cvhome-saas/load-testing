@@ -40,7 +40,10 @@ make help                                                # every target and ever
 ```
 
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
-Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
+Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local. After every run but a smoke, the
+**verdict** (`scripts/verdict.mjs`, `make verdict TESTID=…`) reads what the run used of each load-stack container —
+CPU against its cap, memory against its limit, OOM kills, restarts, landing-ui's CPU per page view — and fails the run
+when a budget in `k6/config/budgets.js` breaks, as a threshold would (`NO_VERDICT=1` skips it).
 
 The stack is `stack/docker-compose.yml`: every platform service as the image `bootBuildImage` produces, one
 container each, **held to the CPU and memory its Fargate task gets** — `LOAD_FLAVOUR=dev` by default (`staging`,
