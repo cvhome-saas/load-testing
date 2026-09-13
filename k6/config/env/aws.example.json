@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to k6/config/env/<env>.json (gitignored). Fill from `terraform output` in ../cvhome-platform: console_url -> gatewayUrl, urls.uaa -> uaaUrl, pods.<key>.domain -> podDomain, key -> podId. Seeded stores/accounts exist only when the flavour sets test_stores = true. Never write real passwords here: pass SELLER_PASSWORD / FIXTURE_PASSWORD env vars.",
+  "_comment": "Copy to k6/config/env/<env>.json (gitignored; aws.json is dev and committed). Fill from `terraform output` in ../cvhome-platform: console_url -> gatewayUrl, urls.uaa -> uaaUrl, pods.<key>.domain -> podDomain, key -> podId. Seeded stores/accounts exist only when the flavour sets test_stores = true. Never write real passwords here: pass SELLER_PASSWORD / FIXTURE_PASSWORD env vars.",
   "name": "dev",
   "gatewayUrl": "https://<project>-dev.example.com",
   "uaaUrl": "https://uaa.<project>-dev.example.com",

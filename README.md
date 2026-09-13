@@ -73,17 +73,19 @@ is the same Prometheus, Grafana, Loki and Tempo as the load stack, with the same
 platform container, so no image has to be built or pulled.
 
 ```bash
-cp k6/config/env/aws.example.json k6/config/env/aws.json    # gitignored; fill from `terraform output` in ../cvhome-platform
 make aws-up                                                 # prometheus, grafana, loki, tempo; waits until they answer
 TARGET=aws make preflight                                   # gateway, uaa, storefront, catalog through spg, prometheus
-TARGET=aws make selftest
-TARGET=aws SELLER_PASSWORD=… FIXTURE_PASSWORD=… make smoke   # passwords are env vars, never in the file
-TARGET=aws make storefront-browse PROFILE=load PEAK_VUS=50
+TARGET=aws STORES=org1-store2 make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m
+TARGET=aws STORES=org1-store2 make admin-store-settings PROFILE=load PEAK_VUS=10 DURATION=3m
 TARGET=aws make dash                                        # the run on "Load test vs app"
 make aws-down
 ```
 
-`aws.json` needs `gatewayUrl` (the console URL), `uaaUrl`, `podId` and `podDomain` (from `terraform output pods`),
+`k6/config/env/aws.json` is dev (`https://dev.asrevo.click`), committed with its one seeded store, org1-store2 (so
+`STORES=org1-store2`), and the seeded demo passwords, the same as `local.json` (`SELLER_PASSWORD` /
+`SHOPPER_PASSWORD` still override them). `TARGET=aws` needs no setup, locally or as the `target` of `Run k6 tests`.
+Another deployment copies `aws.example.json` to its own `<env>.json`, which stays gitignored, and passes its
+passwords as env vars. A deployment file needs `gatewayUrl` (the console URL), `uaaUrl`, `podId` and `podDomain` (from `terraform output pods`),
 the seeded account usernames — the seeded stores exist only where the flavour sets `test_stores = true` — and
 `rateLimitProfile: default`, because a deployment keeps the 10/60/20 per minute limiter. What differs from the
 local stack:

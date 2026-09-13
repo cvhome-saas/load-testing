@@ -96,7 +96,7 @@ testid=smoke-smoke-<UTC stamp>` and runs with `--out experimental-prometheus-rw`
 ### 03.5 make admin-store-settings loads the console's store settings screen [verified 2026-09-13 on dev (AWS), `TARGET=aws STORES=org1-store2`: smoke 31 requests 0 failed; load PEAK_VUS=10 3m 6,114 requests 0 failed]
 
 - Setup: a target with the seeded org1 accounts (stack up, or `TARGET=aws` where the flavour sets `test_stores`);
-  `SELLER_PASSWORD` for a deployed target.
+  on dev, `aws.json` carries the seeded passwords.
 - Steps: `make admin-store-settings PROFILE=smoke`; then `make admin-store-settings PROFILE=load PEAK_VUS=10 DURATION=3m`.
 - Expect: one iteration is `gateway:store-management` (the client-rendered shell of `/store-management/domain`)
   and the ten reads the screen makes, every one 200: `merchant:store-private`, `tenancy:themes`,

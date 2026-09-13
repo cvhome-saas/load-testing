@@ -3,6 +3,13 @@ results/
 *.summary.json
 k6-summary.json
 
+# deployment files hold real hostnames and passwords: keep them local. local.json and aws.json (dev, the seeded demo
+# passwords) are committed by the owner's decision; any other deployment copies aws.example.json to its own file.
+k6/config/env/*.json
+!k6/config/env/local.json
+!k6/config/env/aws.json
+!k6/config/env/aws.example.json
+
 # browser artefacts
 screenshots/
 
