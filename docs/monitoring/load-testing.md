@@ -33,6 +33,16 @@ memory above 85 % of the limit, any OOM kill or restart, landing-ui above its CP
 working set keeps growing after warm-up. The result is also in `results/<testid>.verdict.json`. Against a deployed
 target there is no container to read here; `make aws-report` reads ECS instead.
 
+**What a page ships.** `make page-budget` (`TARGET=aws make page-budget` for dev) renders every theme through
+`?theme=<id>` on the store's home, a category, a product and a search, and reports per page: the HTML (and its gzip
+size), the RSC payload inside it and that of a client-side navigation, the stylesheets and scripts (count and bytes),
+every one of them that carries another theme, and inline CSS that appears twice. A stylesheet carries theme X through
+its `[data-theme=X]` rules; a script through the `themes/X/` client modules it defines, read from the build's
+client-reference manifests (copied out of the running landing-ui container, or `PAGE_BUDGET_BUILD=<.next dir>`;
+without them scripts are counted, not attributed). It fails on `PAGE` in `k6/config/budgets.js`: any file of another
+theme, any inline CSS twice, and the byte and file budgets. Both of this weekend's findings — every theme's CSS and JS
+on every page, all CSS inlined twice — fail it.
+
 **The knee.** On Bottlenecks → *Traffic vs p95*, the request rate flattens while p95 climbs: that is the capacity of
 the system as configured. The saturation strip at that moment names the resource.
 

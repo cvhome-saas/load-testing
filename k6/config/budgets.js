@@ -33,3 +33,23 @@ export const CPU_PER_UNIT = {
   'landing-ui': { per: 'page view', budgetMs: 130 },
   uaa: { per: 'sign-in', budgetMs: null },
 };
+
+/**
+ * What a server-rendered page may ship, per theme and key page: `make page-budget` (scripts/page-budget.mjs). Sizes are
+ * uncompressed KiB, as served. `themes` mirrors cvhome's store-pod/landing-ui/themes/ (a new theme is one entry);
+ * `null` is reported, not judged. The two weekend findings fail here: every theme's CSS and JS on every page
+ * (otherThemeFiles: 13 stylesheets and 31 scripts, 22 of them another theme's) and all CSS inlined twice (the HTML at
+ * 866 KiB, duplicateInlineCssKiB).
+ */
+export const PAGE = {
+  themes: ['basic', 'beauty', 'cosmetics', 'fashion', 'furniture', 'glasses', 'grocery', 'hunger', 'jewellery', 'pink', 'sports', 'starter'],
+  pages: ['home', 'category', 'product', 'search'],
+  otherThemeFiles: 0, // a page loads no stylesheet or script that carries another theme
+  duplicateInlineCssKiB: 0, // no inline stylesheet appears twice in the HTML (as <style> and again in the RSC payload)
+  htmlKiB: 400,
+  cssFiles: 4,
+  cssKiB: 160,
+  jsFiles: 24,
+  jsKiB: 1450,
+  rscNavKiB: null, // the payload of a client-side navigation to the page
+};

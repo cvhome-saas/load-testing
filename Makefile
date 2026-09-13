@@ -10,7 +10,7 @@ TARGET := $(if $(TARGET),$(TARGET),local)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict page-budget \
         stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
         aws-up aws-down aws-ps \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
@@ -120,6 +120,9 @@ dash: ## open the "Load test vs app" Grafana dashboard for TESTID (or the newest
 verdict: ## what a run used of every load-stack container, against k6/config/budgets.js (TESTID, or the newest run)
 	@testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
 	 [ -n "$$testid" ] || { echo "no TESTID and no results/*.json"; exit 2; }; node scripts/verdict.mjs "$$testid"
+
+page-budget: ## what a storefront page ships per theme and key page, against PAGE in k6/config/budgets.js (TARGET)
+	node scripts/page-budget.mjs
 
 # one target per script: k6/scripts/<layer>/<name>.js -> make <layer>-<name>
 define SCRIPT_RULE

@@ -401,6 +401,8 @@ services:
       OTEL_SERVICE_NAME: landing-ui
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # ?theme=<id> previews, as on dev (flavour storefront_previews): make page-budget renders every theme through it.
+      STOREFRONT_THEME_OVERRIDE: "true"
     ports:
       - "8110:8110"
     networks:
