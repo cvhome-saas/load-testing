@@ -44,6 +44,10 @@ Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local. Af
 **verdict** (`scripts/verdict.mjs`, `make verdict TESTID=…`) reads what the run used of each load-stack container —
 CPU against its cap, memory against its limit, OOM kills, restarts, landing-ui's CPU per page view — and fails the run
 when a budget in `k6/config/budgets.js` breaks, as a threshold would (`NO_VERDICT=1` skips it).
+`make perf-suite` is all of it in one command, on the capped stack: `make stack-up`, then smoke → load (30
+shoppers, 5 min) → spike with the recovery probe → page breakpoint → sign-in burst → a 10-minute soak → the page
+budget, ending with one table of every check, its number, its budget and pass or fail (`TARGET=aws make perf-suite`:
+the same without the stack, with `aws-report` after every run; `SUITE_STEPS=load,page-budget` runs some steps only).
 `make page-budget` checks what the storefront ships instead: for every theme (through `?theme=`) and the store's
 home, a category, a product and a search, the HTML, the RSC payload, the stylesheets and scripts and any of them that
 carries another theme, and inline CSS that appears twice — against `PAGE` in the same file.

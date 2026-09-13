@@ -43,6 +43,15 @@ without them scripts are counted, not attributed). It fails on `PAGE` in `k6/con
 theme, any inline CSS twice, and the byte and file budgets. Both of this weekend's findings — every theme's CSS and JS
 on every page, all CSS inlined twice — fail it.
 
+**The whole picture.** `make perf-suite` runs, on the capped stack (it starts it: `make stack-up`), smoke → load
+(storefront-browse, `SUITE_LOAD_VUS` 30 shoppers for `SUITE_LOAD_DURATION` 5 min) → spike (`SUITE_SPIKE_VUS` 10, ×10 at
+the top, with the recovery probe) → page breakpoint (`PAGE_MAX_RPS` 20 over `RAMP` 10 min) → sign-in burst
+(`SUITE_SIGNIN_DURATION` 3 min) → soak (`SUITE_SOAK` 10 min) → the page budget, and ends with one table: every check —
+k6's thresholds, the container at its cap, memory, OOM kills and restarts, CPU per page view and per sign-in, the
+recovery p95, the knee, the per-hop sign-in p95s, memory growth, pages over budget — with its number, its budget and
+pass or fail. `TARGET=aws make perf-suite` is the same without the stack step, with `aws-report` after every run.
+`SUITE_STEPS=load,page-budget` runs a subset. About 40 minutes end to end.
+
 **The knee.** On Bottlenecks → *Traffic vs p95*, the request rate flattens while p95 climbs: that is the capacity of
 the system as configured. The saturation strip at that moment names the resource.
 

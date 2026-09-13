@@ -10,7 +10,7 @@ TARGET := $(if $(TARGET),$(TARGET),local)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict page-budget \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict page-budget perf-suite \
         stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
         aws-up aws-down aws-ps aws-report \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
@@ -128,6 +128,9 @@ verdict: ## what a run used of every load-stack container, against k6/config/bud
 
 page-budget: ## what a storefront page ships per theme and key page, against PAGE in k6/config/budgets.js (TARGET)
 	node scripts/page-budget.mjs
+
+perf-suite: ## stack-up → smoke → load → spike → page breakpoint → sign-in burst → soak → page budget, one table (TARGET=aws: no stack, aws-report per run)
+	node scripts/perf-suite.mjs
 
 # one target per script: k6/scripts/<layer>/<name>.js -> make <layer>-<name>
 define SCRIPT_RULE
