@@ -11,7 +11,7 @@ SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
 .PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash \
-        stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats hosts monitoring-check \
+        stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
         aws-up aws-down aws-ps \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
@@ -56,8 +56,17 @@ clean: ## remove k6- data (API pass, then SQL)
 prom-check: ## does Prometheus hold samples for TESTID
 	@curl -sG "$${PROM_QUERY:-http://localhost:9090}/api/v1/query" --data-urlencode "query=sum(k6_http_reqs_total{testid=\"$(TESTID)\"})" | python3 -m json.tool
 
-stack-up: ## start the load stack: the platform's built images + infra + monitoring, wait for every /actuator/health
+stack-up: ## start the load stack at LOAD_FLAVOUR's AWS sizes (default dev): built images + infra + monitoring, wait for /actuator/health
 	stack/stack.sh up
+
+stack-sizes: ## the CPU and memory every container gets under LOAD_FLAVOUR / LOAD_CPU_FACTOR / LOAD_MEM, without starting
+	stack/stack.sh sizes
+
+stack-limits: ## what docker applied to each running container of the load stack (CPU cap, memory limit, shape)
+	stack/stack.sh limits
+
+sizes-sync: ## copy the Fargate sizes from ../cvhome-platform into stack/fargate-sizes.json (npm test checks the copy)
+	node scripts/sync-fargate-sizes.mjs
 
 stack-down: ## stop the load stack, keep its volumes (database, media)
 	stack/stack.sh down

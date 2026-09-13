@@ -12,7 +12,7 @@
     "actions:check": "scripts/with-tool.sh actionlint",
     "build": "make build",
     "check": "npm run packages:check && npm run code:check && npm run build",
-    "code:check": "npm run lint && npm run format:check && npm run markdown:check && npm run shell:check && npm run actions:check && npm run inspect",
+    "code:check": "npm run lint && npm run format:check && npm run markdown:check && npm run shell:check && npm run actions:check && npm run sizes:check && npm run inspect",
     "format": "prettier --write package.json .prettierrc.json .markdownlint-cli2.jsonc eslint.config.mjs '.github/workflows/*.{yml,yaml}' 'k6/config/env/*.json'",
     "format:check": "prettier --check package.json .prettierrc.json .markdownlint-cli2.jsonc eslint.config.mjs '.github/workflows/*.{yml,yaml}' 'k6/config/env/*.json'",
     "inspect": "make inspect",
@@ -20,7 +20,8 @@
     "lint:fix": "eslint k6 --fix",
     "markdown:check": "markdownlint-cli2 README.md 'docs/**/*.md'",
     "packages:check": "npm audit --audit-level=high",
-    "shell:check": "scripts/with-tool.sh shellcheck bin/k6run scripts/*.sh",
+    "shell:check": "scripts/with-tool.sh shellcheck bin/k6run scripts/*.sh stack/stack.sh",
+    "sizes:check": "node scripts/sync-fargate-sizes.mjs --check",
     "test": "npm run check"
   },
   "devDependencies": {

@@ -43,8 +43,12 @@ Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` ta
 Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
 
 The stack is `stack/docker-compose.yml`: every platform service as the image `bootBuildImage` produces, one
-container each, 1 GB each (`LOAD_MEM`), plus postgres, minio, spg and the monitoring five (otel-collector, loki,
-tempo, prometheus, grafana). Telemetry is on by default. **Images are a pre-step, never built here**:
+container each, **held to the CPU and memory its Fargate task gets** — `LOAD_FLAVOUR=dev` by default (`staging`,
+`prod`, `ephemeral`, or `off` for the old uncapped stack), sizes copied from `../cvhome-platform` into
+`stack/fargate-sizes.json` — plus postgres at its RDS class, minio, spg and the monitoring five (otel-collector,
+loki, tempo, prometheus, grafana), which stay uncapped. A Fargate vCPU is slower than a laptop core, so every CPU cap
+is scaled by `LOAD_CPU_FACTOR` (0.45, measured against dev; `make stack-sizes` prints the table, `make stack-limits` what docker
+applied). Telemetry is on by default. **Images are a pre-step, never built here**:
 `./gradlew bootBuildImage` in `../cvhome` (tags `latest`), or `LOAD_REGISTRY=… LOAD_TAG=2.0.0` to pull a
 released version. `./gradlew bootBuildImage -Pnative` builds the twelve Spring services as GraalVM native executables
 under the same names; tag them apart (`:native`) and run `LOAD_TAG=native LOAD_MEM=512m make stack-up` — the native
@@ -53,6 +57,8 @@ needs nothing else; `make hosts` prints the `/etc/hosts` lines a browser on this
 
 ```bash
 make stack-up                                            # waits until every Java service answers /actuator/health
+make stack-sizes                                         # the CPU and memory each container gets (LOAD_FLAVOUR, LOAD_CPU_FACTOR)
+make stack-limits                                        # what docker applied to each running container
 make stack-stats                                         # memory and CPU per container during a run
 make stack-logs S=catalog                                # one service's logs
 make stack-down                                          # keep the database;  make stack-down-hard drops it
@@ -226,10 +232,10 @@ alerts, runbooks, `load-testing.md` (how a run shows up and how to turn it into 
 
 ## Prerequisites on the application side (not done here)
 
-| change                                        | where in `../cvhome`                                                        | why                                    |
-| --------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
-| build the images (`./gradlew bootBuildImage`) | —                                                                           | the stack runs them; it never builds   |
-| Hikari pool size                              | `LOAD_POOL_SIZE` here (default 10) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
+| change                                        | where in `../cvhome`                                                                                             | why                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| build the images (`./gradlew bootBuildImage`) | —                                                                                                                | the stack runs them; it never builds   |
+| Hikari pool size                              | `LOAD_POOL_SIZE` here (default: the flavour's `db_pool_size`, 3 on dev) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
 
 JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
 `../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.

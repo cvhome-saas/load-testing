@@ -1,12 +1,21 @@
-# The load stack: the whole platform as the images `bootBuildImage` produces, one container per service, every
-# container capped at LOAD_MEM (1g) — the packaging and the memory a deployed task gets — plus the infra it needs
-# (postgres, minio, spg) and the monitoring that reads it (otel-collector, loki, tempo, prometheus, grafana).
-# Standalone: nothing here depends on the cvhome checkout. Images are built beforehand
-# (`./gradlew bootBuildImage` in cvhome, or pulled from a registry via LOAD_REGISTRY/LOAD_TAG); this file never builds.
+# The load stack: the whole platform as the images `bootBuildImage` produces, one container per service, each held to
+# the CPU and memory its Fargate task gets on AWS — plus the infra it needs (postgres at its RDS class, minio, spg)
+# and the monitoring that reads it (otel-collector, loki, tempo, prometheus, grafana), which stays uncapped so that
+# observing never becomes the bottleneck. Standalone: nothing here depends on the cvhome checkout. Images are built
+# beforehand (`./gradlew bootBuildImage` in cvhome, or pulled from a registry via LOAD_REGISTRY/LOAD_TAG); this file
+# never builds.
 #
-#   make stack-up        docker compose -p cvhome-load -f stack/docker-compose.yml up -d, then wait for every /actuator/health
+#   make stack-up        stack/stack.sh up: resolve the sizes, docker compose -p cvhome-load up -d, wait for /actuator/health
+#   make stack-sizes     the CPU and memory each service gets under LOAD_FLAVOUR / LOAD_CPU_FACTOR, without starting
+#   make stack-limits    what docker applied to each running container (NanoCpus, Memory)
+#   make stack-stats     memory and CPU per container, once
 #   make stack-down      stop, keep the volumes;  make stack-down-hard drops them (fresh database next time)
-#   make stack-stats     memory and CPU per container
+#
+# The sizes come from stack/fargate-sizes.json (a copy of cvhome-platform's flavours.yaml + services.yaml, kept in step
+# by scripts/sync-fargate-sizes.mjs). stack.sh turns LOAD_FLAVOUR and LOAD_CPU_FACTOR into LOAD_CPUS_<SERVICE> and
+# LOAD_MEM_<SERVICE> and exports them; the defaults below are what a plain `docker compose` without stack.sh gets: no
+# CPU cap and LOAD_MEM (1g), the stack as it was before the caps. LOAD_TAG_<SERVICE> runs one service at another tag
+# than LOAD_TAG (LOAD_TAG_LANDING_UI=calib-arm64), to compare two builds of it under the same caps.
 #
 # Ports, hostnames and store ids are the platform's local defaults, so the suite runs with TARGET=local and the
 # /etc/hosts entries from `make hosts` point a browser at it. Inside the network the platform's hostnames are
@@ -14,18 +23,20 @@
 # tokens against uaa.gateway.com:8001 and reaches uaa; the storefront calls spg-507f1f77.gateway.com:80 and reaches
 # spg. `lb://` calls resolve through SimpleDiscoveryClient with the container names (SPRING_APPLICATION_JSON below).
 
-x-limits: &limits
-  deploy:
-    resources:
-      limits:
-        memory: ${LOAD_MEM:-1g}
+# Which shape a container was started in, as labels: cAdvisor carries them into Prometheus, so a run's verdict knows the
+# flavour and the CPU factor it ran under without asking the shell that started the stack.
+x-shape: &shape
+  labels:
+    cvhome.load.flavour: ${LOAD_FLAVOUR:-off}
+    cvhome.load.cpu-factor: ${LOAD_CPU_FACTOR:-1}
 
 x-java-env: &java-env
   SPRING_PROFILES_ACTIVE: lcl,test-stores
   # Every JVM exports to the collector unless told otherwise; a load stack without telemetry has nothing to read.
   OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
   INFO_STACK_NAME: load
-  # The Paketo memory calculator sizes the heap from the container limit; this is the only knob worth exposing.
+  # The Paketo memory calculator sizes the heap from the container limit, and the JVM its GC and thread pools from the
+  # CPU quota (one processor below a full core, as on a 0.25 or 0.5 vCPU task); this is the only knob worth exposing.
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
   SPRING_APPLICATION_JSON: >-
     {
@@ -69,7 +80,7 @@ x-java-env: &java-env
 # the race to another still-starting peer retries on its own (Spring Cloud LoadBalancer, the OAuth2 client), and
 # `restart: on-failure` covers a JVM that gave up. stack.sh waits on /actuator/health from the outside.
 x-java: &java
-  <<: *limits
+  <<: *shape
   restart: on-failure:5
   depends_on:
     postgres:
@@ -78,7 +89,8 @@ x-java: &java
 services:
   # ---------------------------------------------------------------- infra
   postgres:
-    <<: *limits
+    <<: *shape
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_POSTGRES:-0}", memory: "${LOAD_MEM_POSTGRES:-${LOAD_MEM:-1g}}" } } }
     image: ${POSTGRES_IMAGE:-postgres:15-alpine}
     ports:
       - "5432:5432"
@@ -96,7 +108,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
   minio:
-    <<: *limits
+    <<: *shape
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_MINIO:-0}", memory: "${LOAD_MEM_MINIO:-${LOAD_MEM:-1g}}" } } }
     # quay.io, not Docker Hub: Docker Hub no longer serves minio/minio. Same release, same image digest. The pin
     # matches cvhome's docker-compose-lcl.yml and its Testcontainers MinioTestConfiguration.
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
@@ -110,9 +123,10 @@ services:
     volumes:
       - minio-data:/data
   spg:
-    <<: *limits
+    <<: *shape
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_SPG:-0}", memory: "${LOAD_MEM_SPG:-${LOAD_MEM:-1g}}" } } }
     # The app's own edge image: the saas-gateway Caddy binary with the Caddyfile baked in (cvhome store-pod/spg).
-    image: ${LOAD_REGISTRY:-}store-pod/spg:${LOAD_TAG:-latest}
+    image: ${LOAD_REGISTRY:-}store-pod/spg:${LOAD_TAG_SPG:-${LOAD_TAG:-latest}}
     ports:
       - "80:80"
       - "443:443"
@@ -150,9 +164,8 @@ services:
       - merchant
       - landing-ui
 
-  # ---------------------------------------------------------------- monitoring
+  # ---------------------------------------------------------------- monitoring (uncapped: observing must never be the bottleneck)
   otel-collector:
-    <<: *limits
     image: otel/opentelemetry-collector-contrib:0.150.1
     command: [ "--config=/etc/otel-collector.yml" ]
     volumes:
@@ -166,7 +179,6 @@ services:
       - loki
       - tempo
   loki:
-    <<: *limits
     image: grafana/loki:3.6.10
     command: [ "-config.file=/etc/loki/loki.yml" ]
     volumes:
@@ -174,7 +186,6 @@ services:
     ports:
       - "3100:3100"
   tempo:
-    <<: *limits
     image: grafana/tempo:2.10.5
     command: [ "-config.file=/etc/tempo/tempo.yml" ]
     volumes:
@@ -182,7 +193,6 @@ services:
     ports:
       - "3200:3200"
   prometheus:
-    <<: *limits
     image: prom/prometheus:v3.11.2
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -194,7 +204,6 @@ services:
     ports:
       - "9090:9090"
   grafana:
-    <<: *limits
     image: grafana/grafana:12.4
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -215,7 +224,8 @@ services:
   # ---------------------------------------------------------------- store-core
   uaa:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-core/uaa:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_UAA:-0}", memory: "${LOAD_MEM_UAA:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/uaa:${LOAD_TAG_UAA:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -226,7 +236,8 @@ services:
           - uaa.gateway.com
   store-core-gateway:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-core/store-core-gateway:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_STORE_CORE_GATEWAY:-0}", memory: "${LOAD_MEM_STORE_CORE_GATEWAY:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/store-core-gateway:${LOAD_TAG_STORE_CORE_GATEWAY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -239,28 +250,32 @@ services:
           - console-ui.gateway.com
   tenancy:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-core/tenancy:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_TENANCY:-0}", memory: "${LOAD_MEM_TENANCY:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/tenancy:${LOAD_TAG_TENANCY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
       - "8020:8020"
   billing:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-core/billing:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_BILLING:-0}", memory: "${LOAD_MEM_BILLING:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/billing:${LOAD_TAG_BILLING:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
       - "8021:8021"
   pod-registry:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-core/pod-registry:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_POD_REGISTRY:-0}", memory: "${LOAD_MEM_POD_REGISTRY:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/pod-registry:${LOAD_TAG_POD_REGISTRY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
       - "8022:8022"
   console-ui:
-    <<: *limits
-    image: ${LOAD_REGISTRY:-}store-core/console-ui:${LOAD_TAG:-latest}
+    <<: *shape
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_CONSOLE_UI:-0}", memory: "${LOAD_MEM_CONSOLE_UI:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-core/console-ui:${LOAD_TAG_CONSOLE_UI:-${LOAD_TAG:-latest}}
     environment:
       PORT: "8011"
     ports:
@@ -269,7 +284,8 @@ services:
   # ---------------------------------------------------------------- store-pod
   merchant:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/merchant:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_MERCHANT:-0}", memory: "${LOAD_MEM_MERCHANT:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/merchant:${LOAD_TAG_MERCHANT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -280,7 +296,8 @@ services:
           - merchant.gateway.com
   content:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/content:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_CONTENT:-0}", memory: "${LOAD_MEM_CONTENT:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/content:${LOAD_TAG_CONTENT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -291,7 +308,8 @@ services:
           - content.gateway.com
   catalog:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/catalog:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_CATALOG:-0}", memory: "${LOAD_MEM_CATALOG:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/catalog:${LOAD_TAG_CATALOG:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -302,7 +320,8 @@ services:
           - catalog.gateway.com
   checkout:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/checkout:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_CHECKOUT:-0}", memory: "${LOAD_MEM_CHECKOUT:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/checkout:${LOAD_TAG_CHECKOUT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -313,7 +332,8 @@ services:
           - checkout.gateway.com
   cua:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/cua:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_CUA:-0}", memory: "${LOAD_MEM_CUA:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/cua:${LOAD_TAG_CUA:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -324,7 +344,8 @@ services:
           - cua.gateway.com
   payment:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/payment:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_PAYMENT:-0}", memory: "${LOAD_MEM_PAYMENT:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/payment:${LOAD_TAG_PAYMENT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -335,7 +356,8 @@ services:
           - payment.gateway.com
   inventory:
     <<: *java
-    image: ${LOAD_REGISTRY:-}store-pod/inventory:${LOAD_TAG:-latest}
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_INVENTORY:-0}", memory: "${LOAD_MEM_INVENTORY:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/inventory:${LOAD_TAG_INVENTORY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
     ports:
@@ -345,8 +367,9 @@ services:
         aliases:
           - inventory.gateway.com
   landing-ui:
-    <<: *limits
-    image: ${LOAD_REGISTRY:-}store-pod/landing-ui:${LOAD_TAG:-latest}
+    <<: *shape
+    deploy: { resources: { limits: { cpus: "${LOAD_CPUS_LANDING_UI:-0}", memory: "${LOAD_MEM_LANDING_UI:-${LOAD_MEM:-1g}}" } } }
+    image: ${LOAD_REGISTRY:-}store-pod/landing-ui:${LOAD_TAG_LANDING_UI:-${LOAD_TAG:-latest}}
     environment:
       PORT: "8110"
       # Server-side API calls go back out through spg, by its in-network alias.

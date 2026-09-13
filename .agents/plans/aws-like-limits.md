@@ -53,6 +53,14 @@ and dev measured 206 ms per page.
 - **Calibration:** run the storefront browse at 30 shoppers against the capped stack. The factor is right when
   landing-ui's CPU per page and its saturation roughly match dev's run `browse-load-20260913T214244Z` (0.5 vCPU at
   90–96 %, ~95 ms of CPU per page). The chosen default goes into the knob's doc.
+- **Calibration, as measured:** `LOAD_CPU_FACTOR=0.45`. Under dev's own load shape (storefront-browse, 30 shoppers,
+  org1-store2, the same landing-ui build), dev's landing-ui spent 88–95 ms of CPU per page on 2026-09-13 (0.5 vCPU at
+  90–96 %, run `browse-load-20260913T214244Z`: CloudWatch one-minute maxima × 0.5 vCPU ÷ 1,610 page views), and the
+  capped stack here spent 41.6 ms (at a 0.325 cap, `load-load-20260914T000658Z`) and 42.1 ms (at 0.225,
+  `calib-0.45-browse-load-20260914T010001Z`): 42 / 93 = 0.45. At 0.45 landing-ui sat at 90 %+ of its cap for 4m15s
+  without a break, at 94 ms of Fargate CPU per page, as on dev. The first estimate, 0.64, came from a sequential render
+  harness (60.7 ms a render, cvhome#356); one render at a time costs more than renders under load, so it overstated a
+  Fargate vCPU. The derivation is in the knob's doc (`stack/stack.sh`, `docs/monitoring/load-testing.md`).
 - **Verified:**
   - `docker inspect` shows each container's NanoCpus and Memory equal to dev's `ssr`/`medium`/`small`/`gateway` sizes
     × the factor.

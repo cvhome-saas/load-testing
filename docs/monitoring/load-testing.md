@@ -64,34 +64,66 @@ k6 names its requests `service:endpoint`; the application sees route templates. 
 
 (Exact templates: Service RED → *Requests / s by route* while the run is going.)
 
-## The load stack: images, one container each, 1 GB per container
+## The load stack: images, one container each, at their AWS sizes
 
 Numbers from `lcl start` (in cvhome) are development numbers: every service is `gradle bootRun` on the host, with a warm build
 daemon behind it, no memory limit, and the storefront on `next dev`. For numbers that mean something about a
 deployment, run the platform the way it is deployed — as the images `bootBuildImage` produces, one container per
-service, each capped at the memory a task gets:
+service, each held to the CPU and memory its Fargate task gets:
 
 ```bash
+make stack-sizes                            # what every container will get: LOAD_FLAVOUR (dev), LOAD_CPU_FACTOR (0.45)
 make stack-up                               # stack/docker-compose.yml: prebuilt images (./gradlew bootBuildImage in cvhome), waits for every /actuator/health
+make stack-limits                           # what docker applied: CPU cap and memory limit per container
 make smoke                                  # TARGET=local: same ports, hostnames and seeded stores
 make stack-stats                            # memory and CPU per container
 make stack-down                             # make stack-down-hard drops the volumes: a fresh database next time
 ```
 
-What it is: `stack/docker-compose.yml` layered over `docker-compose-lcl.yml`. The infra and the monitoring are the
-same containers lcl runs; the fourteen application containers are added, each with `deploy.resources.limits.memory`
-= `LOAD_MEM` (1g). The JVM images size their heap from that limit (the buildpack memory calculator), so a service
-that leaks or over-allocates is killed the way it would be on Fargate, and JVM & Runtime → *Heap after GC* reads
-against a real ceiling. Inside the network the platform's hostnames (`gateway.com`, `uaa.gateway.com`,
-`catalog.gateway.com`, `spg-507f1f77.gateway.com`, the demo store hosts) are container aliases, so spg, the JVMs
-and the storefront reach each other by the names the config already uses; on the host the same names still point
-at 127.0.0.1 through `/etc/hosts`, and every port is the lcl default, so `load-testing` needs no new target.
+What it is: the infra and the monitoring are the same containers lcl runs; the fifteen platform containers are added,
+each with `deploy.resources.limits` set from `stack/fargate-sizes.json`, a copy of cvhome-platform's `flavours.yaml`
+(what `small`, `medium`, `gateway`, `ui` and `ssr` are per environment) and `services.yaml` (which size each service
+takes). `LOAD_FLAVOUR` picks the environment: `dev` by default, so an ordinary `make stack-up` already hits dev's walls
+(landing-ui 0.5 vCPU, catalog 0.5, uaa 0.25, every JVM 1 GiB; here 0.225, 0.225 and 0.1125 cores); `staging`, `prod` and `ephemeral` are the other
+shapes, and `off` is the stack as it was before the caps (no CPU cap, `LOAD_MEM` each). `make sizes-sync` refreshes the
+copy from `../cvhome-platform`, and `npm test` fails when it is stale.
 
-Knobs: `LOAD_MEM` (default `1g`), `LOAD_POOL_SIZE` (Hikari maximum per service, default 10 — the deployed default,
-not lcl's 5), `LOAD_TAG` / `LOAD_REGISTRY` (which images), `JAVA_TOOL_OPTIONS`, `OTEL_SDK_DISABLED` (default
-`false`: everything exports to the collector).
+- **CPU.** A cap is a CFS quota, the mechanism Fargate uses for a task's CPU. The JVM reads it at start: below one
+  core it sees one processor and picks the serial collector and small pools, as it does on a 0.25 or 0.5 vCPU task.
+- **`LOAD_CPU_FACTOR`** (0.45) scales every CPU cap, because a Fargate vCPU does less work than a laptop core. It was
+  measured under dev's own load shape — storefront-browse, 30 shoppers, org1-store2 — with the same landing-ui build
+  (cvhome main after #356) on both sides. Dev on 2026-09-13 (run `browse-load-20260913T214244Z`): landing-ui at 90–96 %
+  of its 0.5 vCPU, 88–95 ms of CPU per page (CloudWatch one-minute maxima × 0.5 vCPU ÷ 1,610 page views). Here, the
+  same shape: 41.6 ms per page at a 0.325 cap and 42.1 ms at 0.225 (cAdvisor CPU seconds ÷ k6 page views). 42 / 93 =
+  0.45: a Fargate vCPU does about 0.45 of the work of an Apple-silicon performance core on this workload. At 0.45 the
+  local run (`calib-0.45-browse-load-20260914T010001Z`) behaves like dev's: landing-ui at 90 %+ of its 0.225 cores for
+  4m15s without a break, 94 ms of Fargate CPU per page, pages at a p95 of 4.0–5.2 s (dev 3.3–4.2 s, over a slower
+  network). At 0.65 the local task had half again dev's capacity. A sequential render harness (60.7 ms a render,
+  cvhome#356) had suggested 0.64: one render at a time costs more than renders under load. Another machine may differ:
+  measure it the same way (`make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m STORES=org1-store2`, the
+  verdict's landing-ui CPU per page, against dev's) and set the knob.
+- **Memory.** The limit is the task's memory, so the JVM images size their heap from it (the buildpack memory
+  calculator) and a service that leaks or over-allocates is killed the way it would be on Fargate. `LOAD_MEM` still
+  sets one limit for every platform and infra container, over the flavour.
+- **The database is approximate.** postgres gets its RDS instance class's vCPUs (× the factor) and memory
+  (`db.t4g.micro`: 2 vCPU, 1 GiB on dev), with PostgreSQL's default settings, and each JVM's Hikari pool is the
+  flavour's `db_pool_size` (3 on dev) unless `LOAD_POOL_SIZE` says otherwise. minio has no CPU cap (S3 is not a
+  bottleneck on AWS), and the monitoring containers have no cap at all, so observing never becomes the bottleneck.
+- **Start-up is slower.** A JVM on a sixth of a core takes minutes to start, as it does on Fargate; `LOAD_WAIT`
+  (900 s) is how long `make stack-up` waits for every `/actuator/health`.
 
-What still differs from a deployment: one machine shares its CPU between all containers and the database, so the
-first thing to saturate is the host's CPU, not a task's; `PostgreSQL` runs in a 1 GB container with default
-settings; there is no load balancer, no TLS termination, and the storefront's static assets are served by the
-container rather than a CDN. Record `docker stats` alongside the run so a memory-bound service is visible.
+Inside the network the platform's hostnames (`gateway.com`, `uaa.gateway.com`, `catalog.gateway.com`,
+`spg-507f1f77.gateway.com`, the demo store hosts) are container aliases, so spg, the JVMs and the storefront reach
+each other by the names the config already uses; on the host the same names still point at 127.0.0.1 through
+`/etc/hosts`, and every port is the lcl default, so `load-testing` needs no new target.
+
+Knobs: `LOAD_FLAVOUR` (default `dev`), `LOAD_CPU_FACTOR` (default `0.45`), `LOAD_MEM` (unset: the flavour's sizes),
+`LOAD_POOL_SIZE` (Hikari maximum per service, default the flavour's `db_pool_size`, 10 with `off`), `LOAD_TAG` /
+`LOAD_REGISTRY` (which images), `JAVA_TOOL_OPTIONS`, `OTEL_SDK_DISABLED` (default `false`: everything exports to the
+collector), `LOAD_WAIT` (default 900 s).
+
+What still differs from a deployment: one task per service, no autoscaling and no load balancer; the laptop's cores
+are not Fargate's, so the factor is a calibration, not an identity; PostgreSQL runs with default settings rather than
+RDS's parameter group; there is no TLS termination, and the storefront's static assets are served by the container
+rather than a CDN, which costs landing-ui CPU that dev does not spend. Record `make stack-stats` alongside the run so a
+container at its cap is visible.
