@@ -90,3 +90,32 @@ Spring Data JDBC's generated repositories mapping DTO queries onto the entity, a
 carry, telemetry frozen off at build time (no service in Prometheus), and a `@Cacheable` store lookup that was never
 proxied — merchant served 190 req/s natively against 7.6 on the JVM and catalog's list reads were 3–7× slower until
 it was.
+
+### Spike on the native images (2026-09-13)
+
+The same native build as above (cvhome-saas/cvhome#349 at `f7e5cb36a`, rebuilt: `./gradlew bootBuildImage -Pnative
+-PnativeImageArgs=-J-Xmx12g --max-workers=1`, 47 minutes for the set) on a fresh stack, `LOAD_TAG=native LOAD_MEM=512m
+make stack-up`, then each script at `PROFILE=spike`: a quarter of the load, ten times it for a minute, back down. The
+twelve Spring images are arm64 on this arm64 host; spg, console-ui and landing-ui are amd64 and emulated. _First at
+0.8_ is read from `docker stats` every 3 s (the JVM gauges are absent natively).
+
+| script / profile                                          | image          | testid                                  | k6 p95 (worst API name)     | 5xx | first at 0.8                                 | finding                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------- | -------------- | --------------------------------------- | --------------------------- | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| smoke                                                     | native, 512 MB | `smoke-smoke-20260913T062405Z`          | —                           | 0   | —                                            | 308 requests, 0 failed, 2 orders; the one `spg:domain-lookup` check as before                                                                                                                                                                                                                                                                                 |
+| storefront-browse / spike, PEAK_VUS=30 (8 → 300 VUs)      | native, 512 MB | `browse-spike-20260913T062508Z`         | `catalog:search` 24.5 ms    | 0   | landing-ui memory 1.0, CPU 148 %             | 3,036 requests, 308 failed, **every one a `page:*`** (60 s timeouts); 0 failed on the thirteen API names (`catalog:product` 7.4 ms, `inventory:availability` 4.0 ms, `content:layout` 3.4 ms). landing-ui ran out of V8 heap and its process hung: see below                                                                                                  |
+| shopper-guest-checkout / spike (30 → 300 orders a minute) | native, 512 MB | `guest-checkout-spike-20260913T063252Z` | `checkout:checkout` 28.6 ms | 0   | none — landing-ui 259 MiB, payment 196 MiB   | 2,893 requests, 0 failed, 0 dropped, 399 orders; purchase journey p95 206 ms, `page:checkout` 139 ms, `checkout:cart-create` 20 ms                                                                                                                                                                                                                            |
+| mixed-production-mix / spike (seven scenarios, ten times) | native, 512 MB | `production-mix-spike-20260913T063605Z` | `checkout:checkout` 42.4 ms | 0   | landing-ui memory 1.0, CPU 235 %; tempo 0.94 | 9,935 requests, 824 failed, **all `page:*` again** (landing-ui out of heap a second time); admin 2,727 requests, 0 failed; 92 orders; 1,163 dropped iterations (VUs held 60 s by the storefront). Stopped at 10 min: the `browsers` scenario (3 Chromium VUs, up to 30 min) could not progress against the hung storefront. `catalog:search` 16.1 ms over 476 |
+
+**The native services absorbed every spike.** 0 failed requests on every API name in all three runs, no 5xx on the
+server side (about 30,000 requests in `http_server_request_duration_seconds_count` over the three runs), no restart,
+no OOM kill. Peak memory per native service was 103–196 MiB of 512 (payment the highest), within the 118–345 MiB of
+the load-profile runs above.
+
+**The storefront did not.** landing-ui ran out of heap in both runs that render pages at ten times the load, and did
+not recover. It is capped at 512 MB like every container (`LOAD_MEM` is one knob), which is the `dev` flavour's `ui`
+size (staging and prod give it 1024); Node's heap reached about 259 MB, then `FATAL ERROR: … JavaScript heap out of
+memory`. The process did not exit: the container stayed `running` with no restart, the stack has no healthcheck on
+it, and every page timed out until `docker restart cvhome-load-landing-ui-1`. Whether it also hangs on a real amd64
+host, rather than aborting so ECS replaces the task, is open: this one ran under Rosetta. For cvhome: give
+landing-ui's heap a limit that fits its task, or bound its concurrent renders, and make a heap OOM end the process.
+With 512 MB caps the monitoring runs near its limit too (tempo 482 MiB in the mix).
