@@ -1,6 +1,6 @@
 # The load stack: the whole platform as the images `bootBuildImage` produces, one container per service, each held to
 # the CPU and memory its Fargate task gets on AWS — plus the infra it needs (postgres at its RDS class, minio, spg)
-# and the monitoring that reads it (otel-collector, loki, tempo, prometheus, grafana), which stays uncapped so that
+# and the monitoring that reads it (otel-collector, loki, tempo, prometheus, grafana, cadvisor), which stays uncapped so that
 # observing never becomes the bottleneck. Standalone: nothing here depends on the cvhome checkout. Images are built
 # beforehand (`./gradlew bootBuildImage` in cvhome, or pulled from a registry via LOAD_REGISTRY/LOAD_TAG); this file
 # never builds.
@@ -203,6 +203,29 @@ services:
       - ./monitoring/prometheus-rules:/etc/prometheus/rules:ro
     ports:
       - "9090:9090"
+  # Every container's CPU against its cap, CPU throttling, memory against its limit, OOM kills and restarts, for
+  # Prometheus (job cadvisor). Only compose containers are kept (prometheus.yml), with their service, project and the
+  # shape labels stack.sh sets, so a run's verdict and the "What ran out" panels read one series per service.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=10s"
+      - "--enable_metrics=cpu,memory,oom_event"
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project,cvhome.load.flavour,cvhome.load.cpu-factor"
+    privileged: true
+    devices:
+      - /dev/kmsg
+    # The docker and containerd sockets by their own paths: Docker Desktop maps them to its VM's daemons, where /var/run
+    # would be the Mac's; containerd's is how cAdvisor 0.53+ reads a container under Docker's containerd image store.
+    # Without them cAdvisor sees bare cgroups with no names or labels, and the scrape keeps nothing.
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
   grafana:
     image: grafana/grafana:12.4
     environment:

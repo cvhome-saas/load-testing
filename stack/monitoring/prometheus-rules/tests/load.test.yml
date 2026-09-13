@@ -1,0 +1,75 @@
+# promtool unit tests for the container rules (load-recording.yml). Synthetic cAdvisor series as the cadvisor scrape job
+# relabels them, fixed arithmetic:
+#   docker run --rm -v "$PWD/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/load.test.yml
+rule_files:
+  - ../load-recording.yml
+
+evaluation_interval: 15s
+
+tests:
+  # landing-ui is capped at 0.5 cores and uses all of it, throttled in half its periods, 512 MiB of its 1 GiB; it
+  # restarts once at 5m. prometheus has no CPU cap and no memory limit (cAdvisor reports quota -1 and a huge limit).
+  - interval: 15s
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{project="cvhome-load",service="landing-ui"}'
+        values: '0+7.5x40'
+      - series: 'container_spec_cpu_quota{project="cvhome-load",service="landing-ui"}'
+        values: '50000x40'
+      - series: 'container_spec_cpu_period{project="cvhome-load",service="landing-ui"}'
+        values: '100000x40'
+      - series: 'container_cpu_cfs_periods_total{project="cvhome-load",service="landing-ui"}'
+        values: '0+150x40'
+      - series: 'container_cpu_cfs_throttled_periods_total{project="cvhome-load",service="landing-ui"}'
+        values: '0+75x40'
+      - series: 'container_memory_working_set_bytes{project="cvhome-load",service="landing-ui"}'
+        values: '536870912x40'
+      - series: 'container_spec_memory_limit_bytes{project="cvhome-load",service="landing-ui"}'
+        values: '1073741824x40'
+      - series: 'container_oom_events_total{project="cvhome-load",service="landing-ui"}'
+        values: '0x20 1x20'
+      - series: 'container_start_time_seconds{project="cvhome-load",service="landing-ui"}'
+        values: '1000x20 1300x20'
+      - series: 'container_cpu_usage_seconds_total{project="cvhome-load",service="prometheus"}'
+        values: '0+3.75x40'
+      - series: 'container_spec_cpu_quota{project="cvhome-load",service="prometheus"}'
+        values: '-1x40'
+      - series: 'container_spec_cpu_period{project="cvhome-load",service="prometheus"}'
+        values: '100000x40'
+      - series: 'container_memory_working_set_bytes{project="cvhome-load",service="prometheus"}'
+        values: '104857600x40'
+      - series: 'container_spec_memory_limit_bytes{project="cvhome-load",service="prometheus"}'
+        values: '18446744073709551615x40'
+    promql_expr_test:
+      # rate() carries float noise in the last digit; round() keeps the arithmetic readable.
+      - expr: round(load:container_cpu:cores, 0.001)
+        eval_time: 8m
+        exp_samples:
+          - labels: '{project="cvhome-load", service="landing-ui"}'
+            value: 0.5
+          - labels: '{project="cvhome-load", service="prometheus"}'
+            value: 0.25
+      - expr: round(load:container_cpu:ratio, 0.001)
+        eval_time: 8m
+        exp_samples:
+          - labels: '{project="cvhome-load", service="landing-ui"}'
+            value: 1
+      - expr: load:container_throttled:ratio
+        eval_time: 8m
+        exp_samples:
+          - labels: '{__name__="load:container_throttled:ratio", project="cvhome-load", service="landing-ui"}'
+            value: 0.5
+      - expr: load:container_memory:ratio
+        eval_time: 8m
+        exp_samples:
+          - labels: '{__name__="load:container_memory:ratio", project="cvhome-load", service="landing-ui"}'
+            value: 0.5
+      - expr: increase(load:container_oom_events:total[8m])
+        eval_time: 9m
+        exp_samples:
+          - labels: '{project="cvhome-load", service="landing-ui"}'
+            value: 1
+      - expr: changes(load:container_start_time:seconds[8m])
+        eval_time: 9m
+        exp_samples:
+          - labels: '{project="cvhome-load", service="landing-ui"}'
+            value: 1

@@ -1,0 +1,36 @@
+# The containers against their limits, from cAdvisor (job cadvisor in ../prometheus.yml): what a run used of the CPU and
+# memory each service's Fargate task would have. Naming: load:<what>:<how>, one series per (project, service) — the
+# load stack is project "cvhome-load". Read by the "What ran out" panels of Load test vs app and by `make verdict`;
+# plain-language meaning of each rule: docs/monitoring/kpis.md, "Containers".
+groups:
+  - name: load-containers
+    interval: 15s
+    rules:
+      # The rates look 30 s back (offset 30s): cAdvisor stamps a sample when it collects it, up to ~20 s before Prometheus
+      # has scraped it, so a window ending now would be missing its last samples and read up to a quarter low.
+      # Cores a container used (1 = one full core of this machine).
+      - record: load:container_cpu:cores
+        expr: sum by (project, service) (rate(container_cpu_usage_seconds_total[1m] offset 30s))
+      # Its CPU cap in cores (CFS quota / period). Absent for a container without a cap.
+      - record: load:container_cpu_limit:cores
+        expr: max by (project, service) (container_spec_cpu_quota > 0) / max by (project, service) (container_spec_cpu_period > 0)
+      # CPU against the cap, 0..1: a container at 1 is getting everything its task would, and queueing the rest.
+      - record: load:container_cpu:ratio
+        expr: load:container_cpu:cores / load:container_cpu_limit:cores
+      # Share of CFS periods in which the container wanted more CPU than its quota: the cap is what slows it down.
+      - record: load:container_throttled:ratio
+        expr: sum by (project, service) (rate(container_cpu_cfs_throttled_periods_total[1m] offset 30s)) / sum by (project, service) (rate(container_cpu_cfs_periods_total[1m] offset 30s))
+      # Working set (what the kernel will not reclaim) and the memory limit.
+      - record: load:container_memory:bytes
+        expr: max by (project, service) (container_memory_working_set_bytes)
+      - record: load:container_memory_limit:bytes
+        expr: max by (project, service) (container_spec_memory_limit_bytes > 0 < 1e15)
+      # Working set against the limit, 0..1: at 1 the kernel kills the container, as Fargate stops the task.
+      - record: load:container_memory:ratio
+        expr: load:container_memory:bytes / load:container_memory_limit:bytes
+      # OOM kills since the container was created, as a counter.
+      - record: load:container_oom_events:total
+        expr: max by (project, service) (container_oom_events_total)
+      # When the container's current process started; every change is a restart (changes() over a run counts them).
+      - record: load:container_start_time:seconds
+        expr: max by (project, service) (container_start_time_seconds)

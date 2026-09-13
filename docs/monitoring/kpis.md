@@ -213,6 +213,36 @@ OTLP has them under its own spelling ([porting.md](porting.md)).
 - **When red.** A rising floor during a soak: take a heap dump (`/actuator/heapdump`, not on uaa) and look for the unbounded cache (`STORE` cache in catalog/checkout/payment, gateway sessions). A flat but high floor: a bigger heap.
 - **Porting.** OTel JVM semconv `jvm.gc.duration`, `jvm.memory.used_after_last_gc`, `jvm.memory.limit`.
 
+### Container CPU against its cap, throttling (load stack)
+
+- **Meaning.** The cores a container used as a share of its CPU cap — the Fargate size of its service × `LOAD_CPU_FACTOR` — and the share of CPU periods in which it wanted more than the cap allowed.
+- **Why.** On Fargate a task's CPU is a hard quota: a storefront at its quota queues every page behind the one it is rendering, and latency climbs while nothing looks broken. Locally the same cap is what makes a run fail where dev fails (landing-ui at 0.5 vCPU, catalog next, uaa's bcrypt at 0.25).
+- **Measured.** cAdvisor (job `cadvisor`), per compose service, 1-minute rate; the cap is the CFS quota over its period.
+- **Query.** `load:container_cpu:ratio` = `load:container_cpu:cores / load:container_cpu_limit:cores`, with `load:container_cpu:cores` = `sum by (project, service) (rate(container_cpu_usage_seconds_total[1m] offset 30s))` (30 s back: cAdvisor stamps a sample when it collects it, up to ~20 s before it is scraped, and a window ending now would read low; the verdict, which runs after the fact, uses the same rate without the offset) and `load:container_cpu_limit:cores` = `max by (project, service) (container_spec_cpu_quota > 0) / max by (project, service) (container_spec_cpu_period > 0)`; `load:container_throttled:ratio` = `sum by (project, service) (rate(container_cpu_cfs_throttled_periods_total[1m] offset 30s)) / sum by (project, service) (rate(container_cpu_cfs_periods_total[1m] offset 30s))`. An uncapped container (the monitoring, minio) has no ratio.
+- **Target.** Budget in `load-testing/k6/config/budgets.js`: at 90 % or more of the cap for longer than a minute fails the run's verdict (`make verdict`). Amber 0.8, red 0.9.
+- **Shown.** Load test vs app → *What ran out* → *Container CPU against its cap*, *CPU throttling*, *Containers in this run*.
+- **When red.** That service is the bottleneck of the run at its AWS size. Find what its CPU buys: CPU per page view or per sign-in in the verdict, the service's hottest routes (Service RED) and traces. The fix is less CPU per request, or a bigger size in cvhome-platform's `flavours.yaml` — which is a cost decision, not a test setting.
+- **Porting.** On ECS: `CPUUtilization` of the service (AWS/ECS, one-minute maximum; `make aws-report`), which is already a share of the task's CPU.
+
+### Container memory against its limit, OOM kills, restarts (load stack)
+
+- **Meaning.** Working set (memory the kernel cannot reclaim) as a share of the container's memory limit; OOM kills; restarts.
+- **Why.** At the limit the kernel kills the process, as Fargate stops the task. A storefront that holds ~1.7 MB per waiting request climbs towards its limit in a spike before it is killed; a JVM sized from the limit spends its time collecting before it is killed.
+- **Query.** `load:container_memory:ratio` = `load:container_memory:bytes / load:container_memory_limit:bytes` (`max by (project, service) (container_memory_working_set_bytes)` and `container_spec_memory_limit_bytes`, unlimited excluded); `load:container_oom_events:total` (cAdvisor's OOM counter); `load:container_start_time:seconds` — a restart is a change, counted with `changes()` over the run.
+- **Target.** Peak under 85 % of the limit; no OOM kill, no restart (`budgets.js`). Amber 0.7, red 0.85. During a soak the verdict also reads the slope after warm-up: a working set that keeps rising is a leak.
+- **Shown.** Load test vs app → *What ran out* → *Memory against the limit*, *Containers in this run*.
+- **When red.** JVM: JVM & Runtime → *Heap after GC* (a heap sized from the limit that fills). landing-ui: *landing-ui event loop and heap* — heap that follows the concurrency is requests waiting in memory behind a saturated CPU.
+- **Porting.** On ECS: `MemoryUtilization` of the service; stopped tasks and their reason (`OutOfMemoryError: Container killed…`) in `make aws-report`.
+
+### landing-ui event-loop delay and heap
+
+- **Meaning.** p99 of how late Node's event loop runs a ready callback, and the V8 heap used against its limit.
+- **Why.** Server-side rendering runs on the one event loop: when renders queue, every request waits here before latency shows anywhere else.
+- **Query.** `max(nodejs_eventloop_delay_p99_seconds{service_name="landing-ui"})`; `sum(v8js_memory_heap_used_bytes{service_name="landing-ui"}) / sum(v8js_memory_heap_limit_bytes{service_name="landing-ui"})`. Exported once a minute by the storefront's OTel SDK; the collector keeps only these of the `nodejs.*`/`v8js.*` families.
+- **Target.** Event-loop delay p99 under 100 ms; heap under 70 %.
+- **Shown.** Load test vs app → *What ran out* → *landing-ui event loop and heap*.
+- **Porting.** OTel `nodejs.eventloop.delay.p99`, `v8js.memory.heap.used`, `v8js.memory.heap.limit` (`@opentelemetry/instrumentation-runtime-node`).
+
 ### Cache hit ratio
 
 - **Query.** `sum by (service_name, cache) (rate(cache_gets_total{result="hit"}[5m])) / sum by (service_name, cache) (rate(cache_gets_total[5m]))`.

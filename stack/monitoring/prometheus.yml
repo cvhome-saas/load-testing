@@ -1,5 +1,5 @@
-# Prometheus holds every metric: the application's (scraped from the collector's exporter) and k6's (remote-written by
-# load-testing/bin/k6run). The rule files compute the SLIs once so dashboards and alerts read one series each;
+# Prometheus holds every metric: the application's (scraped from the collector's exporter), every container's
+# (cAdvisor) and k6's (remote-written by load-testing/bin/k6run). The rule files compute the SLIs once so dashboards and alerts read one series each;
 # docs/monitoring/kpis.md explains every rule.
 global:
   scrape_interval: 15s
@@ -16,3 +16,28 @@ scrape_configs:
       # Instrumentation-scope bookkeeping the collector adds to every series; never queried.
       - action: labeldrop
         regex: otel_scope_schema_url|otel_scope_version
+
+  # Containers against their limits (docs/monitoring/signals.md, "Containers"). Only compose containers, only the
+  # series the load-containers rules read, and the compose service, project and shape labels renamed short; cAdvisor's
+  # own ids, image and container names are dropped, so a recreated container continues its service's series.
+  - job_name: cadvisor
+    scrape_interval: 10s
+    static_configs:
+      - targets: [ 'cadvisor:8080' ]
+    metric_relabel_configs:
+      - source_labels: [ container_label_com_docker_compose_service ]
+        regex: ''
+        action: drop
+      - source_labels: [ __name__ ]
+        regex: container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|spec_cpu_quota|spec_cpu_period|spec_memory_limit_bytes|oom_events_total|start_time_seconds)
+        action: keep
+      - source_labels: [ container_label_com_docker_compose_service ]
+        target_label: service
+      - source_labels: [ container_label_com_docker_compose_project ]
+        target_label: project
+      - source_labels: [ container_label_cvhome_load_flavour ]
+        target_label: flavour
+      - source_labels: [ container_label_cvhome_load_cpu_factor ]
+        target_label: cpu_factor
+      - action: labeldrop
+        regex: container_label_.*|id|image|name|cpu

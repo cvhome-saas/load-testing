@@ -21,7 +21,7 @@ The page is one time axis, k6 on top, the application underneath:
 | *The run* | VUs, requests, failed share, dropped iterations, orders, journey errors. **Dropped iterations > 0 means k6 ran out of VUs** — the load generator, not the app, was the limit; raise `PEAK_VUS`/pre-allocated VUs and rerun before drawing conclusions. |
 | *Load and latency, k6 side* | The load shape and the user-visible latency per endpoint name. Compare each name against its threshold in `k6/config/thresholds.js`. The *failures by endpoint and status* panel says what failed: 429 the limiter, 402 the billing guard, 5xx the platform, 409 contention. |
 | *What the application did* | Server-side rate, p95 and 5xx per service, and the service-to-service failure share. If k6 p95 is high but app p95 is low, the time is in spg / landing-ui / the network (Edge dashboard). |
-| *What ran out* | Every ceiling as a share on one axis — request threads, database pool, CPU, GC — plus pool waiting, SQL cost and heap. **The first line to reach 0.8 is the bottleneck of this run.** |
+| *What ran out* | Every ceiling as a share on one axis — request threads, database pool, CPU, GC — plus pool waiting, SQL cost and heap. **The first line to reach 0.8 is the bottleneck of this run.** On the load stack, every container against its AWS-sized cap (cAdvisor): *Container CPU against its cap*, *CPU throttling*, *Memory against the limit*, *Containers in this run* (peaks, OOM kills, restarts), and *landing-ui event loop and heap*. |
 
 **The knee.** On Bottlenecks → *Traffic vs p95*, the request rate flattens while p95 climbs: that is the capacity of
 the system as configured. The saturation strip at that moment names the resource.

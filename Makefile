@@ -102,8 +102,8 @@ aws-ps: ## what the monitoring-only stack is running
 monitoring-check: ## dashboards match their spec and docs; Prometheus rules, config and the collector config are valid; the compose file parses
 	node stack/monitoring/scripts/build-dashboards.mjs --check
 	node stack/monitoring/scripts/dashboard-docs.mjs --check
-	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 check rules /r/cvhome-recording.yml /r/cvhome-alerts.yml
-	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/cvhome.test.yml
+	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 check rules /r/cvhome-recording.yml /r/cvhome-alerts.yml /r/load-recording.yml
+	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/cvhome.test.yml /r/tests/load.test.yml
 	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" --entrypoint promtool prom/prometheus:v3.11.2 check config --syntax-only /etc/prometheus/prometheus.yml
 	docker run --rm -v "$(CURDIR)/stack/monitoring/otel-collector.yml:/etc/otel-collector.yml:ro" otel/opentelemetry-collector-contrib:0.150.1 validate --config=/etc/otel-collector.yml
 	docker compose -f stack/docker-compose.yml config -q

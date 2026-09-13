@@ -76,7 +76,7 @@ shape = f'LOAD_FLAVOUR={flavour}' + (f'  LOAD_CPU_FACTOR={num(factor)}' if flavo
 err = [f'==> {shape}  LOAD_POOL_SIZE={pool}' + (f'  LOAD_MEM={mem_override} over every size' if mem_override else '')]
 err.append(f"    {'service':20s} {'size':13s} {'on AWS':20s} {'here':14s} memory")
 err += [f'    {r[0]:20s} {r[1]:13s} {r[2]:20s} {r[3]:14s} {r[4]}' for r in rows]
-err.append('    otel-collector loki tempo prometheus grafana: uncapped')
+err.append('    otel-collector loki tempo prometheus grafana cadvisor: uncapped')
 print('\n'.join(out))
 print('\n'.join(err), file=sys.stderr)
 PY
