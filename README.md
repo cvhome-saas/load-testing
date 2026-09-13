@@ -90,6 +90,7 @@ TARGET=aws make preflight                                   # gateway, uaa, stor
 TARGET=aws STORES=org1-store2 make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m
 TARGET=aws STORES=org1-store2 make admin-store-settings PROFILE=load PEAK_VUS=10 DURATION=3m
 TARGET=aws make dash                                        # the run on "Load test vs app"
+TARGET=aws make aws-report TESTID=<testid>                  # what ECS did during it: CPU/memory per service, tasks, scaling, stops
 make aws-down
 ```
 
@@ -108,6 +109,11 @@ local stack:
   own CloudWatch dashboard, `terraform output dashboard_url` in `../cvhome-platform`).
 - **`make clean` is the API pass only.** The SQL pass needs the load stack's postgres container; RDS is private,
   so orders, carts and shoppers the suite created stay until an operator removes them.
+- **The containers are ECS's.** The verdict has no container to read here; `make aws-report TESTID=…` reads, read-only,
+  every ECS service's CPU and memory as one-minute maxima over the run (and minutes at 90 %+), desired/running/pending
+  tasks, scaling activities and service events in the window, and tasks stopped in it with their reason, next to k6's
+  summary. It needs AWS credentials (`aws sso login`) and says so without them; `awsRegion` and `ecsClusterPrefix` in
+  the target file say where to look. ECS keeps stopped tasks for about an hour, so run it soon after.
 - The preflight's unknown-subdomain check only means something on lcl; it warns on a deployment, which is fine.
 - The two stacks share the host ports, so `make aws-up` and `make stack-up` do not run at the same time.
 

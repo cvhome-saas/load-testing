@@ -12,7 +12,7 @@ EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6
 
 .PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict page-budget \
         stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
-        aws-up aws-down aws-ps \
+        aws-up aws-down aws-ps aws-report \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
 help: ## targets and knobs
@@ -98,6 +98,11 @@ aws-down: ## stop the monitoring-only stack
 
 aws-ps: ## what the monitoring-only stack is running
 	$(AWS_COMPOSE) ps
+
+aws-report: ## a deployed run next to what ECS did: CPU/memory per service, tasks, scaling, stopped tasks (read-only; TESTID)
+	@testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
+	 [ -n "$$testid" ] || { echo "no TESTID and no results/*.json"; exit 2; }; \
+	 TARGET=$(if $(filter local,$(TARGET)),aws,$(TARGET)) node scripts/aws-report.mjs "$$testid"
 
 monitoring-check: ## dashboards match their spec and docs; Prometheus rules, config and the collector config are valid; the compose file parses
 	node stack/monitoring/scripts/build-dashboards.mjs --check
