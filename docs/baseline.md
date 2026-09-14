@@ -158,3 +158,168 @@ had the same HTTP shoppers and backend images, no browsers, and landing-ui main 
 - #357 cut what a page costs under overload by 60 %, and took the failed requests to none. The queue is what remains.
   A one-minute spike ends before autoscaling can add a task (3–6 min).
 - The peak's Web Vitals count only the visits that finished.
+
+### Heavy spikes: 3× and 5× in a browser, the production mix at 20× (2026-09-14)
+
+The same stack at dev's sizes (factor 0.45), pushed well past the wall above.
+
+- **Images:** every image was rebuilt from cvhome main `c0f7ea358`, after #358 (Next 16.3.5, React 19.2.8).
+  - The Spring services are JVM images (`./gradlew bootBuildImage`, arm64), and so is what dev runs.
+  - landing-ui is that commit's standalone build on `node:24-alpine`, a local-only arm64 image; production's base is
+    amd64 only.
+  - spg is the amd64 image, emulated.
+- **Store:** org1-store2. The browser spikes use 3 / 9 / 3 Chromium shoppers: 15 at the peak ran this Mac out of
+  memory.
+- **The load generator:** never the limit. The host stayed at least 35 % idle with at least 58 % of its memory free.
+- **Two passes.** The first ran the JVMs at the `lcl` profile's DEBUG. The second ran them at Fargate's log levels,
+  now the stack's default (`LOAD_LOG_LEVEL`). The table is the second pass. The first is in the finding on logging.
+
+| run, Fargate log levels | shoppers or offered rate | failed | pages p50 / p95 | a browser at the peak | landing-ui at its cap | next container | checkout |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `heavy-x3-storefront-spike-spike-20260914T100732Z` | 8 → 300 for a minute | 2.7 % | home 7.1 / 60 s; product 5.3 / 12.1 s | none of 9 finished a page inside the window | 75 s (longest 45 s), 73 ms of Fargate CPU a page | catalog 79 %, never at its cap | idle |
+| `heavy-x5-storefront-spike-spike-20260914T101246Z` | 13 → 500 for a minute | 4.4 % | home 42.4 / 60 s; product 3.9 / 60 s | LCP p75 5.7 s, TTFB p75 4.7 s, 0 of 15 failed | 2m15s in one stretch, 70 ms a page | catalog 91 %, 15 s at its cap | idle |
+| `heavy-rate60-production-mix-spike-20260914T101748Z` | the normal day ×2, ×20 for a minute | 7.6 % | every page p95 60 s | — | 2m15s | catalog 100 %, 90 s at its cap; uaa 61 %; inventory 59 % | **94 % of purchases failed (13 orders)** |
+
+What a shopper's browser saw at 5×, window by window:
+
+| window | LCP p75 | TTFB p75 | failed visits |
+| --- | --- | --- | --- |
+| before the spike (13 shoppers) | 1.62 s | 0.84 s | 0 of 18 |
+| the minute at 5× | 5.70 s | 4.66 s | 0 of 15 |
+| from 20 s after it | 1.25 s (p95 56 s) | 0.13 s | 3 of 31 |
+
+**Finding: landing-ui is the one wall for storefront traffic.**
+
+- At its cap, a render costs 70–73 ms of a Fargate vCPU. One 0.5 vCPU task serves about 7 page views a second.
+- Every page is rendered per request: the build marks every route dynamic, and nothing caches the HTML.
+- At 5×, home's median response took 42 s. A third of home journeys failed, and the p95 of every page was the 60 s
+  client timeout.
+- The queue outlives the spike. landing-ui stayed at its cap 53 s (3×) and 75 s (5×) after the load dropped. With
+  catalog idle beside it, it was rendering pages whose clients had already given up. Nothing cancels an abandoned
+  request or sheds load, so recovery waits for the backlog.
+- In the mix, spg answered 69 pages with a 502.
+
+**Finding: checkout falls over while it is nearly idle.**
+
+- Its pool of 3 ran dry in both mixed spikes: "total=3, active=3, idle=0, waiting=199".
+- In the second pass, 2,562 waits timed out after 30 s. That was 562 failed cart creations and 258 failed admin order
+  lists, and the run placed 13 orders. The same mix at a normal day's rate places 31 in three minutes.
+- checkout's CPU peaked at 32 % of its cap (54 % at DEBUG), and PostgreSQL's at 11 %.
+- The cause is in the code (cvhome `c0f7ea358`):
+  - `CartServiceImpl.create`, `upsert` and `get` are read-write `@Transactional`. Each holds its connection while it
+    calls catalog (`/api/v1/detailed-products`) and inventory (`/api/v1/availability/query`) over HTTP.
+  - No RestClient in store-commons or store-pod sets a connect or read timeout.
+  - `spring.jpa.open-in-view` is left at its default, true.
+- So three slow calls to catalog stop checkout.
+- The same collapse appeared once without a spike. After the JVMs restarted, a normal day with 15 shoppers beside it
+  failed 81 cart creations. A trace of one of them held its connection for 120 s: 30 s waiting for it, 11 s in
+  catalog, then 78 s the trace does not account for. Where those 78 s went is open.
+
+**Finding: catalog spends its CPU in the JVM, and holds its connections past the database.**
+
+Statements per request, counted from traces at a normal day's load (`sql-trace-mix-*`):
+
+| route | statements | server | in SQL |
+| --- | --- | --- | --- |
+| `/api/v2/products/search` | 9.8 (up to 15) | 89.5 ms | 6.6 ms |
+| `/api/v2/products` | 7.6 | 5.1 ms | 1.6 ms |
+| `/api/v2/product/name/{friendlyUrl}` | 6.3 | 7.3 ms | 4.6 ms |
+| `/api/v1/detailed-products` | 3.0 | 7.1 ms | 3.3 ms |
+| `/api/v1/products/groups/{code}` (28 % of requests) | 1.0 | 1.2 ms | 0.2 ms |
+
+At 5×, catalog ran 59,703 statements for 10,378 requests, 5.75 each. 95 % of them finished under 5 ms, and
+PostgreSQL never passed 11 % of its CPU. The cost is in catalog itself (cvhome `c0f7ea358`):
+
+- **Search runs facets on every call.** It pages, counts, hydrates, loads three batches, then runs four `GROUP BY`
+  facet queries and four label loads. landing-ui's category page calls `search?count=1&facets=true` for the facets
+  alone.
+- **Criteria plans recompile on every call.** `hibernate.criteria.plan_cache_enabled` is off by default, and the
+  listing, search and facets are all Specifications.
+- **Fetch joins multiply rows.** `findAllHydrated`, `findByStoreAndId` and `findByStoreAndFriendlyUrl` join
+  descriptions × images × brand and type descriptions: about 20 rows a product on seed data.
+- **Open-in-view is on by default.** Each connection is held until the response has been serialised; on a throttled
+  half vCPU that is time spent waiting for CPU. In the mixed spike, 135 requests waited for one of catalog's 3.
+- **`HHH90003004` comes from one storefront query,** `CategoryRepository.findByStore` behind
+  `/api/v1/category-hierarchy`. It pages categories with their descriptions fetch-joined.
+- **No hot route has a server-side cache.**
+
+**Finding: the database scans what it should look up.**
+
+- `catalog.product_image` has no index on `product_id`. The stack's life so far: 59,142 full scans, 53.2 million rows
+  read.
+- `inventory.product_price` has only its primary key, so 94 % of its reads were full scans.
+- `ddl-auto: update` added a second copy of each unique index on `catalog.product_variant`, beside the ones
+  `schema.sql` creates.
+- The seeded 200 products hide all of it.
+
+**Finding: N+1 queries elsewhere.**
+
+- checkout's admin orders list: 42 statements a request, customer account and totals once per row.
+- Placing an order: 22.
+- content's `storefront/site`: 12.
+- inventory's bulk update: 21 for 20 SKUs.
+
+**Finding: the connection budget outgrows RDS.**
+
+- Pools multiply by tasks: 11 services × up to 12 tasks × 6 in prod is 792 connections.
+- `db.t4g.small` allows about 200.
+
+**Finding: the HTTP shopper journeys send catalog reads a browser does not.**
+
+- `browseHome`, `browseCategory` and `browseProduct` send each page, then the API reads landing-ui makes while it
+  renders that page.
+- A browser sends only the page. `browser-browse` made 32 page views, 81 catalog calls, and not one trace that started
+  in the browser went to catalog (`d1-browser-browse-20260914T102410Z`).
+- Page views alone cost the same 2.4 catalog calls a view (`d2-page-views-breakpoint-20260914T102521Z`).
+- In the spikes, the journeys' own calls were 45 % of everything catalog served. Real shoppers would load catalog
+  about half as much as these runs did. landing-ui's numbers are unaffected: it renders the same page either way.
+
+**Finding: the `lcl` profile's DEBUG logging was a load of its own.**
+
+- Under the mixed spike, checkout wrote 285 log lines a request, tenancy 140 and inventory 128. Most carried a stack
+  trace from `RequestCacheAwareLocaleInterceptor`, which catches the exception `AcceptHeaderLocaleResolver.setLocale`
+  throws.
+- At Fargate's levels:
+  - 3×: catalog fell from 99.7 % of its cap (60 s at it) to 79 % (never at it). `catalog:product` p95 fell from 8.6 s
+    to 2.3 s.
+  - 5×: catalog went from 75 s at its cap to 15 s.
+  - The mix: tenancy fell from 69 % to 40 %.
+- Checkout's collapse did not change, so that finding stands on its own.
+- The DEBUG pass: `heavy-x3-storefront-spike-spike-20260914T092543Z` (a Chromium was killed at 2m36s and k6 aborted,
+  after the peak), `heavy-x5-storefront-spike-spike-20260914T093137Z` and
+  `heavy-rate60-production-mix-spike-20260914T093713Z`.
+
+What the application needs, by owner, easiest first. The report with the evidence and file references:
+<https://claude.ai/code/artifact/6a901437-b6d9-4b55-b186-a360eff4d46b>.
+
+- **cvhome, common-config.yml `spring.jpa`:**
+  - `open-in-view: false`;
+  - `properties.hibernate.default_batch_fetch_size: 50`;
+  - `hibernate.criteria.plan_cache_enabled: true`;
+  - `ddl-auto: validate`, because `schema.sql` owns the schema.
+- **cvhome, checkout:**
+  - take the catalog and inventory snapshot before the cart transaction (`CartServiceImpl` :43, :57, :73, :82);
+  - give every RestClient a connect and read timeout;
+  - set Hikari's `connection-timeout` to about 3 s;
+  - skip `customerOf` when an order is listed without detail.
+- **cvhome, catalog:**
+  - drop the fetch join from the paged category queries;
+  - add a facets-only search path;
+  - split the multiplying fetch joins;
+  - Caffeine response caches on groups, categories, manufacturers, product by URL, suggest and facets;
+  - indexes on `product_image(product_id)`, `category_description(sef_url, language_code)`,
+    `category(store_merchant_id, lineage varchar_pattern_ops)`, `product(store_merchant_id, manufacturer_id)`,
+    `product(product_type_id)` and `product_group_product(product_id)`.
+- **cvhome, inventory:** an index on `product_price(product_avail_id)`.
+- **cvhome, landing-ui:**
+  - cache anonymous renders of home, category, product and search pages per store;
+  - shed load or cancel a render when its client has gone;
+  - time out backend calls at 2–3 s.
+- **cvhome-platform:**
+  - `ssr` is 0.5 vCPU in every flavour, prod included;
+  - uaa's 0.25 vCPU fills with four sign-ins at once;
+  - capacity for a spike has to exist before it starts, since target tracking reacts in minutes;
+  - pooled connections at max scale exceed RDS's limit: RDS Proxy, or pools and max tasks sized to the budget;
+  - raise `rds.db_pool_size` only after the transaction and open-in-view fixes.
+- **load-testing:** the browse journeys should send only what a browser sends. That changes every storefront baseline,
+  so it is its own change.
