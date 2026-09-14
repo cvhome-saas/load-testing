@@ -8,7 +8,7 @@ land, and removing what the suite created.
   fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
 - **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
   `make stack-up` (the platform's prebuilt images plus Prometheus, Grafana, collector, Tempo; telemetry on by default).
-- **Cases** — 16 (7 verified, 9 not verified)
+- **Cases** — 27 (18 verified, 9 not verified; 06.10 is verified for its no-credentials path only)
 - **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
   reading a run; `docs/coverage.md` for which endpoint each client method hits.
 
@@ -151,7 +151,7 @@ found; skip SQL pass`, exit 0.
 
 - Setup: images exist locally (`docker images | grep store-`, from `./gradlew bootBuildImage` in `../cvhome`) or `LOAD_REGISTRY`/`LOAD_TAG` point at a registry; no `lcl` dev stack on the ports
 - Steps: `make stack-up`; `make stack-ps`; `make stack-stats`
-- Expect: "every Java service is UP" within `LOAD_WAIT` (600 s); 12 JVMs + console-ui + landing-ui + spg + postgres + minio + the monitoring five running; every container `/ 1GiB`; `http://localhost:3000` shows the platform overview with application metrics (telemetry is on by default)
+- Expect: "every Java service is UP" within `LOAD_WAIT` (900 s; 600 s when this was verified); 12 JVMs + console-ui + landing-ui + spg + postgres + minio + the monitoring running; the containers at their flavour's sizes since 06.1 (every container `/ 1GiB` when this was verified); `http://localhost:3000` shows the platform overview with application metrics (telemetry is on by default)
 
 ### 05.2 The suite runs against it unchanged [verified 2026-09-08: preflight all ✓, smoke 298 requests 0 failed 2 orders; the one red check is the known first `spg:domain-lookup`]
 
@@ -181,3 +181,86 @@ found; skip SQL pass`, exit 0.
 - Steps: `docker compose -p cvhome-load-verify -f stack/docker-compose.yml pull postgres minio otel-collector loki tempo prometheus grafana`; then, with nothing on port 9000 needed, `docker compose -p cvhome-load-verify -f stack/docker-compose.yml run -d --rm --no-deps --name cvhome-load-verify-minio minio` and `docker exec cvhome-load-verify-minio sh -c 'mc alias set local http://localhost:9000 minioadmin minioadmin && mc ready local'`; finally `docker rm -f cvhome-load-verify-minio` and `docker compose -p cvhome-load-verify -f stack/docker-compose.yml down -v`
 - Expect: every pull ends `Pulled`; MinIO reports `The cluster 'local' is ready`; nothing named `cvhome-load-verify*` left behind
 - Not covered: the platform's own images (`store-core/*`, `store-pod/*`), which are a local pre-step or come from `LOAD_REGISTRY`
+
+## 06 — AWS-like limits, verdicts and the heavier suite
+
+### 06.1 `LOAD_FLAVOUR` holds every container to its Fargate size [verified 2026-09-14: `make stack-up` then `docker inspect` of every `cvhome-load-*` container, at 0.45 and at 0.65]
+
+- Setup: images as in 05.1; a `../cvhome-platform` checkout beside this repo (or `CVHOME_PLATFORM`)
+- Steps: `make stack-sizes`; `make stack-up`; `make stack-limits`; `docker inspect -f '{{.Name}} {{.HostConfig.NanoCpus}} {{.HostConfig.Memory}}' $(docker ps -q --filter name=cvhome-load-)`
+- Expect: the table shows dev's sizes × `LOAD_CPU_FACTOR` 0.45: landing-ui, catalog, content, merchant, spg and store-core-gateway at `0.225` cpus; uaa, tenancy, billing, pod-registry, checkout, cua, payment, inventory and console-ui at `0.1125`; postgres at `0.9` (db.t4g.micro); every JVM 1024m and console-ui 512m; minio has no CPU cap; the monitoring six are uncapped. `NanoCpus` is the cap × 10⁹ (`225000000` for landing-ui) and `Memory` the limit in bytes (`1073741824`); `LOAD_POOL_SIZE` defaults to 3
+- Seen: exactly that at 0.45 (`NanoCpus` 225000000 / 112500000 / 900000000, `Memory` 1073741824, console-ui 536870912, the monitoring `0`); the same shape at 0.65 (325000000 / 162500000 / 1300000000). `make stack-limits` printed the same, with `dev/0.45` as each capped container's shape
+
+### 06.2 Other shapes: staging, prod, off, `LOAD_MEM`, a bad value [verified 2026-09-14: `stack/stack.sh sizes` with each]
+
+- Steps: `LOAD_FLAVOUR=prod make stack-sizes`; `LOAD_FLAVOUR=staging make stack-sizes`; `LOAD_FLAVOUR=off make stack-sizes`; `LOAD_MEM=512m make stack-sizes`; `LOAD_FLAVOUR=bogus make stack-sizes`; `LOAD_CPU_FACTOR=x make stack-sizes`
+- Expect:
+  - prod: medium at `0.45` cpus with 2048m, uaa at `0.225`, postgres db.t4g.small at 2048m, pool 6.
+  - staging: console-ui `0.225` cpus at 1024m.
+  - off: no CPU cap and 1g everywhere, pool 10.
+  - `LOAD_MEM`: replaces every memory.
+  - A bad flavour or factor: stops with the list of valid values, exit 1.
+- Not run: a whole stack started at `prod` or `off`. Only the resolved table was checked.
+
+### 06.3 The copied sizes cannot go stale [verified 2026-09-14: `node scripts/sync-fargate-sizes.mjs --check` against an edited copy, then `make sizes-sync`]
+
+- Steps: `node scripts/sync-fargate-sizes.mjs --check`; change one number in `stack/fargate-sizes.json`; run it again; `make sizes-sync`; `CVHOME_PLATFORM=/nonexistent node scripts/sync-fargate-sizes.mjs --check`
+- Expect: "matches"; then "stale … run node scripts/sync-fargate-sizes.mjs", exit 1; after the sync, matches again and the file is byte-identical to the committed one; with no platform checkout, "skipped", exit 0 (CI). The copy also agreed with PyYAML's reading of both platform files (16 services × 4 flavours)
+
+### 06.4 Containers are in Prometheus and on Load test vs app [verified 2026-09-14: the cadvisor target up; the rules and every new panel's query answered from Prometheus; the panels were not opened in a browser]
+
+- Setup: the stack up (06.1)
+- Steps: `curl -s localhost:9090/api/v1/targets` (job `cadvisor`); query `load:container_cpu_limit:cores`, `load:container_memory_limit:bytes`; run any load; take each *What ran out* panel's query from `/api/dashboards/uid/cvhome-load-test-vs-app` and run it
+- Expect: the cadvisor target is up; one series per capped service with its cap in cores (0.1125–0.9) and its limit in bytes; the new panels' queries answer (16 CPU series, 17 memory, landing-ui's `nodejs_eventloop_delay_p99_seconds` and `v8js_memory_heap_*`)
+- Seen on the way: gcr.io's cAdvisor v0.52.1 saw bare cgroups only under Docker Desktop's containerd image store; 0.55.1 with the docker and containerd sockets names every container
+
+### 06.5 Every run ends with a verdict [verified 2026-09-14: `load-load-20260914T011020Z` (verdict FAIL on landing-ui), `make verdict`, `NO_VERDICT=1` and `VERDICT=1` smoke runs, Prometheus down]
+
+- Steps: `make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m STORES=org1-store2`; then `make verdict` (the newest run) and `make verdict TESTID=<that testid>`; a smoke run with `NO_VERDICT=1` and one with `VERDICT=1`; `node scripts/verdict.mjs <testid>` with Prometheus stopped
+- Expect:
+  - After k6's summary, the verdict table per container: cap, peak CPU/cap, time and longest stretch at 90 %+, throttled share, memory limit and peak, OOM kills, restarts.
+  - landing-ui's CPU per page view, in ms here and in Fargate ms.
+  - k6's crossed thresholds, then "verdict: containers pass" or "FAIL" with each broken budget.
+  - A broken budget fails the run. `results/<testid>.verdict.json` holds the same.
+  - `NO_VERDICT=1` prints no verdict. A smoke run prints none unless `VERDICT=1`. With Prometheus down: "skipped", exit 0.
+
+### 06.6 `storefront-page-breakpoint` finds landing-ui's knee [verified 2026-09-14: `page-breakpoint-breakpoint-20260914T012303Z`]
+
+- Steps: `make storefront-page-breakpoint STORES=org1-store2` (breakpoint shape whatever `PROFILE` is but smoke)
+- Expect: page views ramp from 1/s towards `PAGE_MAX_RPS` (20) over `RAMP`; a page's p95 passes 3 s and the run aborts 30 s later
+- Seen: aborted after 1m58s on `page:home` p95 3.2 s, at about 3.8 page views/s offered at dev's size
+
+### 06.7 A spike carries a recovery probe [verified 2026-09-14: `spike-spike-20260914T011845Z`]
+
+- Steps: `make storefront-browse PROFILE=spike PEAK_VUS=10 STORES=org1-store2`
+- Expect: scenarios `probe` (0 → 1m50s) and `recovery` (2m10s → 3m50s) beside `shoppers`; the summary has `http_req_duration{scenario:recovery}` held to p(95) < 3000; other profiles have no probe (`k6 inspect -e PROFILE=load` shows `shoppers` only)
+- Seen: recovery p95 0.92 s, 0 failed, while the spike itself pushed pages to a 60 s p95
+
+### 06.8 `platform-sign-in-burst` times each hop [verified 2026-09-14: `sign-in-burst-load-20260914T012522Z` and `make selftest`]
+
+- Steps: `make platform-sign-in-burst PROFILE=load DURATION=3m`; `make selftest`
+- Expect: 9 sign-ins a minute (`SIGNIN_RATE`); `seller:login-start`, `-submit`, `-authorize`, `-callback` each in the summary; the verdict prints uaa's CPU per sign-in. Every other script that signs in (the session pools) still gets its sessions: `make selftest` 102 of 102 checks
+- Seen: the hops and uaa's CPU per sign-in were all reported. The local uaa (the old native image) could not keep up even at 9 a minute: at its cap for 2m45s, sign-in p95 98 s. That is the image, not the script (docs/baseline.md)
+
+### 06.9 `make page-budget` checks what a page ships [verified 2026-09-14: perf-suite's page budget on landing-ui main after #356 (48 of 48 pass), and `PAGE_BUDGET_THEMES=fashion,basic,grocery` on the old `store-pod/landing-ui:native` (12 of 12 fail)]
+
+- Steps: `make page-budget`; `PAGE_BUDGET_THEMES=fashion,basic make page-budget`
+- Expect:
+  - One row per theme × page (home, category, product, search): status 200, the theme it rendered, HTML (gzip), inline RSC, navigation RSC, CSS and JS files/KiB, files of another theme, duplicated inline CSS.
+  - Scripts are attributed through the manifests copied out of the landing-ui container.
+  - Exit 1 when a page is over a budget in `PAGE`.
+- Seen:
+  - The old image failed on every page: 11 scripts of another theme, 288 KiB of inline CSS twice, HTML 700–846 KiB.
+  - The current build passed, with 0 files of another theme.
+
+### 06.10 `make aws-report` reads ECS, and says so without credentials [verified 2026-09-14 for the no-credentials path only; not verified against AWS: the SSO session had expired]
+
+- Steps: without an AWS session, `TARGET=aws make aws-report TESTID=<an aws run>`; with one (`aws sso login`), again
+- Expect: without: one line "no AWS credentials for eu-north-1 (…)", exit 2, no other AWS call. With: per ECS service of `cvhome-dev-*`, task size, desired/running/pending, peak CPU and memory and minutes at 90 %+, scaling activities, service events and stopped tasks in the window, then k6's summary
+- Seen: the no-credentials line and exit 2. The report itself has never run against AWS
+
+### 06.11 `make perf-suite` runs everything and ends with one table [verified 2026-09-14: `LOAD_TAG=native LOAD_TAG_LANDING_UI=calib-arm64 make perf-suite`, 01:09–01:40 UTC]
+
+- Steps: `make perf-suite` (about 35 minutes); `SUITE_STEPS=load,page-budget make perf-suite`
+- Expect: stack-up, then smoke, load, spike, page breakpoint, sign-in burst, soak and the page budget run in order, each with its own testid and verdict; the final table lists every check with its number, budget and pass/fail; exit 1 when any check failed
+- Seen: every step ran and the table came out, with 25 failed checks on this image set (docs/baseline.md). `SUITE_STEPS` was not run on its own

@@ -262,8 +262,10 @@ JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules 
 
 ## Known limits
 
-- The local stack runs the storefront on `next dev` and the console on the Angular dev server: SSR and browser
-  numbers are dev-server bound. API numbers are one JVM per service on one machine and a single postgres.
+- The load stack is one task per service at dev's sizes, with no load balancer and no autoscaler (dev adds a
+  landing-ui task after 3–6 minutes of load, which a local run never will). Its CPU caps are dev's × `LOAD_CPU_FACTOR`,
+  a calibration measured on the storefront, not an identity; postgres approximates its RDS class. `make aws-report`
+  is where a deployment's own numbers come from.
 - A store created through the console answers 409 on its storefront `site` document until
   [cvhome #324](https://github.com/cvhome-saas/cvhome/pull/324) lands; the home page still renders (it reads the
   layout), so only the `content:site` call of the content journey is affected on the fixture store.

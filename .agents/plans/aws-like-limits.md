@@ -138,4 +138,96 @@ stack-up` and `make perf-suite` run end to end.
 
 ## Deviations as built
 
+- **The CPU factor is 0.45, not the ~0.65 this plan expected.** Measured the way phase 2 says, under dev's own load
+  shape, landing-ui spent 42 ms of CPU per page here and 88–95 ms on dev: 0.45. At 0.65 the local task had half again
+  dev's capacity. The 0.64 estimate came from a harness that rendered one page at a time.
+- **cAdvisor needed more than the plan knew.**
+  - gcr.io's last cAdvisor (v0.52.1) cannot read a container under Docker's containerd image store, which is Docker
+    Desktop's default. The stack runs `ghcr.io/google/cadvisor:0.55.1` with the containerd socket mounted.
+  - The docker socket is mounted by its own path, because Docker Desktop maps `/var/run` to the Mac.
+  - In the aws-only monitoring, cAdvisor sees only the monitoring containers. The platform's are on ECS, and
+    `make aws-report` reads them.
+- **The recorded CPU rules look 30 s back** (`offset 30s`). cAdvisor stamps a sample when it collects it, and a
+  window ending now read up to a quarter low. The verdict reads the raw rates after the fact instead. The first suite
+  showed why: uaa at 100 % read as a 45 s stretch and passed.
+- **The collector was dropping the Node runtime series** this plan said it kept. Its filter now lets through four:
+  event-loop delay p99 and utilisation, heap used and heap limit.
+- **Beyond the plan:**
+  - `LOAD_POOL_SIZE` follows the flavour's `db_pool_size` (3 on dev).
+  - The monitoring is uncapped in every shape, `off` included; before, `LOAD_MEM` capped it too.
+  - `LOAD_TAG_<SERVICE>` runs one service at another tag. The calibration image used it.
+  - `make stack-sizes` and `make stack-limits` exist, and `stack.sh up` can run again over its own stack: a
+    `grep -q` under `pipefail` used to refuse it.
+- **The verdict:**
+  - It skips smoke runs unless `VERDICT=1`.
+  - It prints k6's crossed thresholds beside its container result. k6's thresholds still set the exit code for
+    latency and errors.
+  - A soak's memory slope counts only when 20 minutes follow the warm-up. Five minutes of a GC sawtooth read as a
+    leak.
+- **sign-in-burst paces at dev's 9 a minute**, not at the local limiter's 1000. A 0.25-vCPU uaa (0.1125 cores here)
+  cannot absorb more: at 60 a minute every sign-in queued into 60 s timeouts.
+- **Every seller sign-in is now timed per hop,** not only sign-in-burst's. `core/session.js` follows the redirects
+  itself, so `seller:login-submit` is the password POST alone, next to `-authorize` and `-callback`.
+- **The spike holds two minutes at base after the peak** (was one), so the recovery probe has a window.
+- **page-budget attributes scripts only where it can read the build's manifests:** out of the local landing-ui
+  container, or from `PAGE_BUDGET_BUILD`. Against AWS it attributes stylesheets only.
+- **aws-report never ran against AWS.** The SSO session had expired, so only the no-credentials path is verified.
+  `awsRegion` and `ecsClusterPrefix` joined the deployment files.
+- **Images:**
+  - The Spring services ran as the local `:native` images from the old GraalVM branch, which predate cvhome#354
+    (uaa's client-secret check is still a bcrypt). The uaa and backend numbers carry that caveat.
+  - landing-ui ran as `store-pod/landing-ui:calib-arm64`, a local-only arm64 image built from cvhome main
+    `113caa92b`'s standalone output on node:20-alpine. It was never pushed and was deleted at the end.
+- **The first suite run is not a baseline.** Another experiment sent storefront traffic to the stack's backend
+  from 00:12 to 00:47 UTC, and the Mac slept from 00:15 to 00:32. It proved the mechanics only.
+- **Follow-up for the orchestrator:** a contract check between `stack/fargate-sizes.json` and cvhome-platform's
+  `flavours.yaml` and `services.yaml`. `npm test` runs `--check` only where a platform checkout sits beside this repo,
+  and CI has none.
+
 ## Verification
+
+**Images.** The Spring services ran as the local `:native` set, which predates cvhome#354. landing-ui ran as a
+local-only arm64 image of cvhome main `113caa92b` (#356). It was deleted at the end.
+
+- **Gates:**
+  - `npm test`: audit, ESLint, Prettier, Markdownlint, `sizes:check`, `make inspect`, `make build`.
+  - `make monitoring-check`: 12 dashboards and their docs, promtool on `cvhome-*` and `load-recording.yml`, both
+    rule tests, the Prometheus and collector configs, both compose files.
+  - ShellCheck (in Docker; it is not installed here) on `bin/k6run`, `scripts/*.sh` and `stack/stack.sh`.
+  - `scripts/verify.sh` is green for the pushed tree.
+- **Caps** (`docker inspect`, `LOAD_FLAVOUR=dev`, factor 0.45):
+  - `NanoCpus` 225000000 for landing-ui, catalog, content, merchant, spg and store-core-gateway.
+  - 112500000 for uaa, tenancy, billing, pod-registry, checkout, cua, payment, inventory and console-ui.
+  - 900000000 for postgres. minio and the monitoring are 0.
+  - `Memory` is 1073741824 for every JVM, landing-ui and spg, and 536870912 for console-ui. The monitoring is 0.
+- **Calibration:** dev's `browse-load-20260913T214244Z` (88–95 ms of CPU per page at 0.5 vCPU) against
+  `calib-0.45-browse-load-20260914T010001Z` (42.1 ms here, 94 ms Fargate, landing-ui at its cap for 4m15s).
+- **perf-suite at the default,** 01:09–01:40 UTC, clean. Each run's checks, and whether they pass:
+
+  | run | result |
+  | --- | --- |
+  | `smoke-smoke-20260914T010902Z` | thresholds pass |
+  | `load-load-20260914T011020Z` | pages p95 6.3–8.3 s: FAIL. landing-ui at its cap 2m00s in one stretch: FAIL. Memory 51 %, OOM/restarts 0, 108 ms Fargate per page: pass |
+  | `spike-spike-20260914T011845Z` | page p95 and 9 % home journey errors: FAIL. landing-ui at its cap 1m15s: FAIL. 166 ms per page: FAIL. Memory 42 %, OOM/restarts 0, recovery p95 0.92 s: pass |
+  | `page-breakpoint-breakpoint-20260914T012303Z` | aborted at page:home p95 3.2 s, knee ≈ 3.8 page views/s. 135 ms per page: FAIL. Cap, memory, OOM: pass |
+  | `sign-in-burst-load-20260914T012522Z` | sign-in p95 98 s: FAIL. uaa at its cap 2m45s: FAIL. 3.9 s of Fargate CPU per sign-in: reported. Memory, OOM: pass |
+  | `soak-soak-20260914T012913Z` | pages p95 3.2–4.6 s: FAIL. Cap, memory, OOM, restarts: pass. catalog +32 %/h: reported, not judged on 10 min |
+  | page budget | 48 of 48 pages pass, 0 files of another theme |
+
+  In all, 25 checks failed. The failures are dev's walls at dev's sizes, plus the old uaa image.
+- **Page budget on the old storefront** (`store-pod/landing-ui:native`, fashion, basic and grocery): 12 of 12 over.
+  Each page loaded 11 scripts of another theme and carried 288 KiB of inline CSS twice, at 700–846 KiB of HTML.
+- **Other checks:**
+  - `make selftest`: 102 of 102 checks with the per-hop sign-in.
+  - The verdict re-read runs after the fact, and `NO_VERDICT` / `VERDICT=1` behaved as documented.
+  - aws-report printed its no-credentials line and exited 2.
+  - The stale-copy check failed on an edited copy and was byte-identical after the sync.
+  - QA: 18 of 27 cases verified; 06.10 only on its no-credentials path.
+- **Not verified:**
+  - aws-report against AWS (the SSO session had expired).
+  - `TARGET=aws make perf-suite`.
+  - The new panels looked at in a browser; their queries were checked against Prometheus.
+  - A 30-minute soak with the leak judgement on.
+  - The stack at `staging`, `prod` or `off` started end to end (only the table).
+  - JVM images at these caps.
+  - The calibration on another machine.
