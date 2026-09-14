@@ -1,6 +1,6 @@
 {
   "_generated": "by scripts/sync-fargate-sizes.mjs from cvhome-platform flavours.yaml + services.yaml; do not edit",
-  "_units": "cpu in Fargate CPU units (1024 = 1 vCPU), memory in MiB; postgres is the flavour's RDS instance class",
+  "_units": "cpu in Fargate CPU units (1024 = 1 vCPU), memory in MiB; postgres is the flavour's RDS instance class; dbPoolSize is the flavour's Hikari pool, and a service's own where services.yaml gives it one",
   "flavours": {
     "dev": {
       "desiredCount": 1,
@@ -14,7 +14,8 @@
         "catalog": {
           "size": "medium",
           "cpu": 512,
-          "memory": 1024
+          "memory": 1024,
+          "dbPoolSize": 8
         },
         "checkout": {
           "size": "small",
@@ -82,8 +83,8 @@
           "memory": 1024
         },
         "uaa": {
-          "size": "small",
-          "cpu": 256,
+          "size": "auth",
+          "cpu": 512,
           "memory": 1024
         },
         "postgres": {
@@ -105,7 +106,8 @@
         "catalog": {
           "size": "medium",
           "cpu": 512,
-          "memory": 1024
+          "memory": 1024,
+          "dbPoolSize": 8
         },
         "checkout": {
           "size": "small",
@@ -173,8 +175,8 @@
           "memory": 1024
         },
         "uaa": {
-          "size": "small",
-          "cpu": 256,
+          "size": "auth",
+          "cpu": 512,
           "memory": 1024
         },
         "postgres": {
@@ -196,7 +198,8 @@
         "catalog": {
           "size": "medium",
           "cpu": 1024,
-          "memory": 2048
+          "memory": 2048,
+          "dbPoolSize": 8
         },
         "checkout": {
           "size": "small",
@@ -225,8 +228,8 @@
         },
         "landing-ui": {
           "size": "ssr",
-          "cpu": 512,
-          "memory": 1024
+          "cpu": 1024,
+          "memory": 2048
         },
         "merchant": {
           "size": "medium",
@@ -264,7 +267,7 @@
           "memory": 1024
         },
         "uaa": {
-          "size": "small",
+          "size": "auth",
           "cpu": 512,
           "memory": 1024
         },
@@ -287,7 +290,8 @@
         "catalog": {
           "size": "medium",
           "cpu": 256,
-          "memory": 1024
+          "memory": 1024,
+          "dbPoolSize": 8
         },
         "checkout": {
           "size": "small",
@@ -355,8 +359,8 @@
           "memory": 1024
         },
         "uaa": {
-          "size": "small",
-          "cpu": 256,
+          "size": "auth",
+          "cpu": 512,
           "memory": 1024
         },
         "postgres": {

@@ -19,7 +19,8 @@
 #                          88-95 ms on dev (0.5 vCPU at 90-96 %, browse-load-20260913T214244Z); 42 / 93 = 0.45, and at
 #                          0.45 the capped run pinned landing-ui as dev did (calib-0.45-browse-load-20260914T010001Z).
 #   LOAD_MEM=              one memory limit for every platform and infra container, over the flavour's sizes
-#   LOAD_POOL_SIZE=        Hikari maximum pool per JVM; default the flavour's rds.db_pool_size (dev 3), 10 when off
+#   LOAD_POOL_SIZE=        Hikari maximum pool per JVM; default the flavour's rds.db_pool_size (dev 3), 10 when off; a
+#                          service with a pool of its own in services.yaml (catalog 8) keeps it unless this is set
 #   LOAD_TAG=latest        the platform images' tag; LOAD_TAG_<SERVICE> (LOAD_TAG_LANDING_UI=…) for one service apart
 #   LOAD_CDN=true          landing-ui publishes its static files to MinIO at boot and browsers load them there, as from
 #                          CloudFront on AWS; false: landing-ui serves /_next/static itself, off its own CPU cap
@@ -46,9 +47,10 @@ port_of() {
 # LOAD_FLAVOUR, LOAD_CPU_FACTOR and LOAD_MEM against fargate-sizes.json: `export` lines on stdout (for eval), the table
 # it applied on stderr. A service the flavour does not size (minio) keeps no CPU cap and LOAD_MEM.
 resolve_sizes() {
-  python3 - "$here/fargate-sizes.json" "${capped_services[@]}" <<'PY'
+  LOAD_JAVA_SERVICES="${java_services[*]}" python3 - "$here/fargate-sizes.json" "${capped_services[@]}" <<'PY'
 import json, os, sys
 file, services = sys.argv[1], sys.argv[2:]
+java_services = set(os.environ.get('LOAD_JAVA_SERVICES', '').split())
 flavours = json.load(open(file))['flavours']
 flavour = os.environ.get('LOAD_FLAVOUR') or 'dev'
 factor_raw = os.environ.get('LOAD_CPU_FACTOR') or '0.45'
@@ -65,6 +67,7 @@ sizes = {} if flavour == 'off' else flavours[flavour]['services']
 if not pool:
     pool = str(flavours[flavour]['dbPoolSize']) if flavour != 'off' else '10'
 num = lambda v: ('%.4f' % v).rstrip('0').rstrip('.')
+own_pool = not os.environ.get('LOAD_POOL_SIZE')
 out = [f'export LOAD_FLAVOUR={flavour}', f'export LOAD_CPU_FACTOR={num(factor) if flavour != "off" else "1"}',
        f'export LOAD_POOL_SIZE={pool}']
 rows = []
@@ -73,13 +76,16 @@ for name in services:
     size = sizes.get(name)
     cpus = num(size['cpu'] / 1024 * factor) if size else '0'
     mem = mem_override or (f"{size['memory']}m" if size else '1g')
-    out += [f'export LOAD_CPUS_{key}={cpus}', f'export LOAD_MEM_{key}={mem}']
+    # A service's own pool (services.yaml db_pool_size) unless LOAD_POOL_SIZE overrides every service.
+    service_pool = str(size['dbPoolSize']) if own_pool and size and size.get('dbPoolSize') else pool
+    out += [f'export LOAD_CPUS_{key}={cpus}', f'export LOAD_MEM_{key}={mem}', f'export LOAD_POOL_SIZE_{key}={service_pool}']
     aws = f"{num(size['cpu'] / 1024)} vCPU {size['memory']} MiB" if size else '-'
-    rows.append((name, size['size'] if size else '-', aws, f'{cpus} cpus' if cpus != '0' else 'no cpu cap', mem))
+    rows.append((name, size['size'] if size else '-', aws, f'{cpus} cpus' if cpus != '0' else 'no cpu cap', mem,
+                 service_pool if name in java_services else '-'))
 shape = f'LOAD_FLAVOUR={flavour}' + (f'  LOAD_CPU_FACTOR={num(factor)}' if flavour != 'off' else '  (today\'s uncapped stack)')
 err = [f'==> {shape}  LOAD_POOL_SIZE={pool}' + (f'  LOAD_MEM={mem_override} over every size' if mem_override else '')]
-err.append(f"    {'service':20s} {'size':13s} {'on AWS':20s} {'here':14s} memory")
-err += [f'    {r[0]:20s} {r[1]:13s} {r[2]:20s} {r[3]:14s} {r[4]}' for r in rows]
+err.append(f"    {'service':20s} {'size':13s} {'on AWS':20s} {'here':14s} {'memory':8s} pool")
+err += [f'    {r[0]:20s} {r[1]:13s} {r[2]:20s} {r[3]:14s} {r[4]:8s} {r[5]}' for r in rows]
 err.append('    otel-collector loki tempo prometheus grafana cadvisor: uncapped')
 print('\n'.join(out))
 print('\n'.join(err), file=sys.stderr)
