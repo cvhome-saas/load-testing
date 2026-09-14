@@ -1,5 +1,6 @@
 # The load stack: the whole platform as the images `bootBuildImage` produces, one container per service, each held to
-# the CPU and memory its Fargate task gets on AWS — plus the infra it needs (postgres at its RDS class, minio, spg)
+# the CPU and memory its Fargate task gets on AWS — plus the infra it needs (postgres at its RDS class, minio as the media
+# store and as the CDN the storefront's static files come from, spg)
 # and the monitoring that reads it (otel-collector, loki, tempo, prometheus, grafana, cadvisor), which stays uncapped so that
 # observing never becomes the bottleneck. Standalone: nothing here depends on the cvhome checkout. Images are built
 # beforehand (`./gradlew bootBuildImage` in cvhome, or pulled from a registry via LOAD_REGISTRY/LOAD_TAG); this file
@@ -122,6 +123,21 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - minio-data:/data
+  # CloudFront's stand-in for the storefront's static files. On AWS landing-ui uploads its build's /_next/static to S3 at
+  # boot and browsers load it from CloudFront (STATIC_ASSETS_* in cvhome-platform modules/store-pod/main.tf); here it
+  # uploads to this bucket, public-read like the distribution, and a browser loads it from MinIO, uncapped as CloudFront
+  # is to a task. Without it every script and stylesheet of a first visit comes off landing-ui's CPU cap. One-shot, on
+  # MinIO's own image and its mc; landing-ui starts after it (LOAD_CDN=false: landing-ui serves the files itself).
+  minio-init:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - >-
+        until mc alias set load http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; do sleep 1; done;
+        mc mb -p load/storefront-assets && mc anonymous set download load/storefront-assets
+    depends_on:
+      - minio
+    restart: "no"
   spg:
     <<: *shape
     deploy: { resources: { limits: { cpus: "${LOAD_CPUS_SPG:-0}", memory: "${LOAD_MEM_SPG:-${LOAD_MEM:-1g}}" } } }
@@ -403,6 +419,17 @@ services:
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       # ?theme=<id> previews, as on dev (flavour storefront_previews): make page-budget renders every theme through it.
       STOREFRONT_THEME_OVERRIDE: "true"
+      # The build's static files go to minio-init's bucket at boot and pages point at it, as dev's point at CloudFront
+      # (start.mjs; on any sync failure it serves them itself). The base URL is what a browser on this machine loads.
+      STATIC_ASSETS_SYNC_ENABLED: ${LOAD_CDN:-true}
+      STATIC_ASSETS_S3_BUCKET: storefront-assets
+      STATIC_ASSETS_S3_PREFIX: storefront
+      STATIC_ASSETS_BASE_URL: http://localhost:9000/storefront-assets/storefront
+      STATIC_ASSETS_S3_ENDPOINT: http://minio:9000
+      STATIC_ASSETS_S3_FORCE_PATH_STYLE: "true"
+      AWS_REGION: eu-central-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     ports:
       - "8110:8110"
     networks:
@@ -410,10 +437,11 @@ services:
         aliases:
           - landing-ui.gateway.com
     depends_on:
-      - catalog
-      - content
-      - inventory
-      - merchant
+      catalog: { condition: service_started }
+      content: { condition: service_started }
+      inventory: { condition: service_started }
+      merchant: { condition: service_started }
+      minio-init: { condition: service_completed_successfully }
 
 volumes:
   postgres-data:
