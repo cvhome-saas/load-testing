@@ -114,3 +114,47 @@ image built for this run only. Dev ran JVM images of the same main.
 The first suite run (`*-20260914T00*`) is not a baseline: another experiment sent storefront traffic to this stack's
 backend from 00:12 to 00:47 UTC and the machine slept from 00:15 to 00:32. Only its landing-ui CPU per page (its own
 container, untouched) was used, as the 0.65 row above.
+
+### The storefront spike in a browser (2026-09-14)
+
+`browser-storefront-spike`, `PEAK_VUS=10` on org1-store2: 3 → 100 HTTP shoppers for the minute at 10×. Chromium
+shoppers are measured before, during and after it (3 / 9 / 3), and each visit is a first visit to one page. The stack is
+capped at dev's sizes (factor 0.45), with the storefront's static files served from MinIO.
+
+- **landing-ui:** cvhome main `e220976a8`, after #357 (Node 24, one currency formatter, identity encoding to spg). It
+  ran as a local-only arm64 image on `node:24-alpine`, deleted after the runs; production's Node 24 base is amd64 only
+  and would run emulated here.
+- **The Spring services:** the `:native` set of the capped rows above. spg is the amd64 image of 2026-09-11.
+- **Runs:** two, `storefront-spike-spike-20260914T071803Z` and `…T072333Z`. Each figure below is the range of the two.
+
+What a shopper's browser saw:
+
+| window | LCP p75 | TTFB p75 | API calls from the browser p95 | visits with no page in 30 s |
+| --- | --- | --- | --- | --- |
+| before the spike (3 shoppers, 3 browsers) | 1.11–1.14 s | 0.04–0.14 s | 19–25 ms | 0 of 21 |
+| the minute at 10× (100 shoppers, 9 browsers) | 8.0–9.6 s (p95 38–45 s) | 6.2–6.6 s | 68–482 ms | 5–6 of 36–37 (14–16 %) |
+| from 20 s after it | 1.11–1.12 s | 0.04–0.07 s | 19–21 ms | 0 of 68–70 |
+
+The load and the containers, next to the capped HTTP spike before #357 (`spike-spike-20260914T011845Z`). That run
+had the same HTTP shoppers and backend images, no browsers, and landing-ui main `113caa92b` on Node 20:
+
+| | before #357, HTTP spike | main after #357, browser spike |
+| --- | --- | --- |
+| HTTP pages p95: home / category / product | 60 / 30 / 18.5 s | 27.6–35.9 / 23.0–34.6 / 21.2–24.4 s (medians 5.0–6.5 s) |
+| failed | 9 % of home journeys (60 s timeouts) | no request of 4,824–5,304 |
+| landing-ui at its cap | 1m15s | 45 s, at 99–100 % |
+| landing-ui CPU per page view, Fargate | 166 ms | 61–67 ms |
+| landing-ui memory | 42 % of 1 GiB | 26–27 % |
+| page views served at the cap | — | 7.3–8.5 a second |
+| catalog | — | 74–77 % of its cap; p95 product 485–582 ms, by category 393–507 ms, search 603–678 ms |
+| inventory | — | 48–58 % of its cap; availability p95 47–151 ms |
+
+**Finding.** One landing-ui task at dev's size is still the wall under a 10× spike.
+
+- At its cap it serves 7–8.5 page views a second. A shopper arriving mid-spike waits about 6 s for the first byte and
+  8–10 s for the page, and one in seven gets nothing within 30 s.
+- It recovers within 20 s of the spike's end. Before the spike, a page paints in 1.1 s.
+- catalog is second, at about three quarters of its cap, and its p95 stays under 0.7 s.
+- #357 cut what a page costs under overload by 60 %, and took the failed requests to none. The queue is what remains.
+  A one-minute spike ends before autoscaling can add a task (3–6 min).
+- The peak's Web Vitals count only the visits that finished.

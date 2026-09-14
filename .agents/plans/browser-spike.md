@@ -174,8 +174,12 @@ Fargate CPU per page view, against dev's ~95 ms. None of them is recorded in `do
   - `storefront-browse` at smoke after the move to `browseVisit()`: 17 checks, 0 failed.
 - **Phase 5:** `SUITE_STEPS=browser-spike SUITE_SPIKE_VUS=2 node scripts/perf-suite.mjs`
   (`browser-spike-spike-20260914T065128Z`): the three rows, with `-` where the peak had no finished visit.
+- **The recorded runs** (`docs/baseline.md`, *The storefront spike in a browser*):
+  - The person chose to build landing-ui alone from cvhome main `e220976a8`: a local-only arm64 image on
+    `node:24-alpine`, deleted after the runs. The `:native` backend stayed, as in the capped rows before it.
+  - `storefront-spike-spike-20260914T071803Z` and `…T072333Z` at `PEAK_VUS=10`:
+    - LCP p75 1.1 s before and after the spike, 8.0–9.6 s during it; 14–16 % of peak visits got no page in 30 s.
+    - landing-ui at its cap for 45 s, at 61–67 ms of Fargate CPU per page; catalog at 74–77 % of its cap.
 - **Not verified:**
-  - A run on images of cvhome main (`./gradlew bootBuildImage`, the stack's pre-step), at `PEAK_VUS=10`, with a
-    baseline row next to `spike-spike-20260914T011845Z`.
   - `TARGET=aws` (dev serves https and CloudFront; the script needs nothing new for it).
   - The Web Vitals stats on Load test vs app opened in a browser. Their `_p75` series now exist in Prometheus.

@@ -8,7 +8,7 @@ land, and removing what the suite created.
   fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
 - **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
   `make stack-up` (the platform's prebuilt images plus Prometheus, Grafana, collector, Tempo; telemetry on by default).
-- **Cases** — 31 (22 verified, 9 not verified; 06.10 for its no-credentials path only, 07.3 for its mechanics only)
+- **Cases** — 31 (22 verified, 9 not verified; 06.10 for its no-credentials path only)
 - **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
   reading a run; `docs/coverage.md` for which endpoint each client method hits.
 
@@ -294,7 +294,7 @@ found; skip SQL pass`, exit 0.
 - Seen: every series was `journey="visit-product"` with a `resource_type`; the Document answered 200 with no 307.
   With the HTTPS-Upgrades feature still on, the same home page had a TTFB of 3.86 s; with it off, 0.96 s.
 
-### 07.3 `browser-storefront-spike` measures three windows of the spike [verified 2026-09-14 for the mechanics only: `PEAK_VUS=2` on the old images, `mech-storefront-spike-spike-20260914T064445Z`; not at `PEAK_VUS=10` on images of cvhome main]
+### 07.3 `browser-storefront-spike` measures three windows of the spike [verified 2026-09-14: `PEAK_VUS=10` on cvhome main's landing-ui (a local arm64 image), `storefront-spike-spike-20260914T071803Z` and `…T072333Z`; mechanics first on the old images]
 
 - Steps: `make browser-storefront-spike PROFILE=spike STORES=org1-store2 PEAK_VUS=10`
   (`k6 inspect -e PROFILE=spike …` shows the shape without traffic)
@@ -311,6 +311,11 @@ found; skip SQL pass`, exit 0.
   - A window where no visit finished shows its trends as 0. Its failed-visit rate is the line that fails.
   - The verdict counted 122 page views, 67 of them from browsers.
   - None of these numbers describes the storefront: the emulated old landing-ui cost 827 ms of Fargate CPU per page.
+  - On main's landing-ui at `PEAK_VUS=10`, twice (`docs/baseline.md`):
+    - LCP p75 was 1.1 s before the spike, 8.0–9.6 s during it and 1.1 s after it.
+    - TTFB p75 during the spike was 6.2–6.6 s.
+    - 14–16 % of visits at the peak got no page in 30 s, and none before or after.
+    - The verdict passed on the containers: landing-ui at its cap for 45 s, 61–67 ms of Fargate CPU per page.
 
 ### 07.4 perf-suite runs the browser spike after the spike [verified 2026-09-14: `SUITE_STEPS=browser-spike SUITE_SPIKE_VUS=2`, `browser-spike-spike-20260914T065128Z`]
 
