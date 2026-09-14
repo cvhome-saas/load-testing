@@ -23,6 +23,8 @@
 #   LOAD_TAG=latest        the platform images' tag; LOAD_TAG_<SERVICE> (LOAD_TAG_LANDING_UI=…) for one service apart
 #   LOAD_CDN=true          landing-ui publishes its static files to MinIO at boot and browsers load them there, as from
 #                          CloudFront on AWS; false: landing-ui serves /_next/static itself, off its own CPU cap
+#   LOAD_LOG_LEVEL=        unset: the JVMs log at a Fargate task's levels (com.asrevo INFO, Spring web and security WARN),
+#                          over the lcl profile's DEBUG; DEBUG brings lcl's back, and costs what writing it costs
 #   LOAD_REGISTRY=  OTEL_SDK_DISABLED=false  LOAD_WAIT=900 (seconds; a JVM on a quarter core starts slowly)
 set -euo pipefail
 

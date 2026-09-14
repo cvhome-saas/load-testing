@@ -182,6 +182,17 @@ found; skip SQL pass`, exit 0.
 - Expect: every pull ends `Pulled`; MinIO reports `The cluster 'local' is ready`; nothing named `cvhome-load-verify*` left behind
 - Not covered: the platform's own images (`store-core/*`, `store-pod/*`), which are a local pre-step or come from `LOAD_REGISTRY`
 
+### 05.7 The JVMs log at a Fargate task's levels, and `LOAD_LOG_LEVEL=DEBUG` brings lcl's back [verified 2026-09-14: `config` both ways, 12 services each; `stack/stack.sh up` from this branch, then `smoke-smoke-20260914T103410Z` (298 requests, 0 failed) and 0 DEBUG lines in all twelve JVM logs]
+
+- Why: the JVMs run the `lcl` profile for its discovery, and its DEBUG levels wrote 128–285 lines a request under load
+  (`docs/baseline.md`, *Heavy spikes*)
+- Steps:
+  1. `docker compose -f stack/docker-compose.yml config | grep LOGGING_LEVEL`, then the same with `LOAD_LOG_LEVEL=DEBUG`
+  2. `make stack-up`, `make smoke`, then `docker logs cvhome-load-inventory-1 2>&1 | grep -c ' DEBUG '`
+- Expect:
+  - Twelve services with `com.asrevo` at INFO and Spring web and security at WARN; all three at DEBUG with the knob
+  - No DEBUG line in any JVM's log after the smoke
+
 ## 06 — AWS-like limits, verdicts and the heavier suite
 
 ### 06.1 `LOAD_FLAVOUR` holds every container to its Fargate size [verified 2026-09-14: `make stack-up` then `docker inspect` of every `cvhome-load-*` container, at 0.45 and at 0.65]

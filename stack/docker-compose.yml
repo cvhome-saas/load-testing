@@ -33,6 +33,12 @@ x-shape: &shape
 
 x-java-env: &java-env
   SPRING_PROFILES_ACTIVE: lcl,test-stores
+  # The log levels a Fargate task runs at (cvhome fargate-config.yml), over lcl's DEBUG for com.asrevo and Spring web
+  # and security: at DEBUG, checkout wrote 285 lines a request and inventory 128 while holding their connections
+  # (heavy-rate60-production-mix-spike-20260914T093713Z). LOAD_LOG_LEVEL=DEBUG brings lcl's levels back.
+  LOGGING_LEVEL_COM_ASREVO: ${LOAD_LOG_LEVEL:-INFO}
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: ${LOAD_LOG_LEVEL:-WARN}
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: ${LOAD_LOG_LEVEL:-WARN}
   # Every JVM exports to the collector unless told otherwise; a load stack without telemetry has nothing to read.
   OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
   INFO_STACK_NAME: load

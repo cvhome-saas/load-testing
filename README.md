@@ -61,7 +61,8 @@ loki, tempo, prometheus, grafana), which stay uncapped. minio is also the storef
 build's static files to it at boot and a browser loads them there, as it loads them from CloudFront on AWS, never off
 landing-ui's CPU cap (`LOAD_CDN=false` has landing-ui serve them itself). A Fargate vCPU is slower than a laptop
 core, so every CPU cap is scaled by `LOAD_CPU_FACTOR` (0.45, measured against dev; `make stack-sizes` prints the table, `make stack-limits` what docker
-applied). Telemetry is on by default. **Images are a pre-step, never built here**:
+applied). Telemetry is on by default, and the JVMs log at a Fargate task's levels, not the `lcl` profile's DEBUG
+(`LOAD_LOG_LEVEL=DEBUG` brings it back). **Images are a pre-step, never built here**:
 `./gradlew bootBuildImage` in `../cvhome` (tags `latest`), or `LOAD_REGISTRY=… LOAD_TAG=2.0.0` to pull a
 released version. `./gradlew bootBuildImage -Pnative` builds the twelve Spring services as GraalVM native executables
 under the same names; tag them apart (`:native`) and run `LOAD_TAG=native LOAD_MEM=512m make stack-up` — the native
