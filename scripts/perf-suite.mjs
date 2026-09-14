@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The whole picture in one command: on the capped load stack, smoke → load → spike with recovery → page breakpoint →
-// sign-in burst → a short soak, then the page budget, and one table at the end: each check, its number, its budget,
+// The whole picture in one command: on the capped load stack, smoke → load → spike with recovery → the spike in a
+// browser → page breakpoint → sign-in burst → a short soak, then the page budget, and one table at the end: each check, its number, its budget,
 // pass or fail. Against a deployed target (TARGET=aws) the same sequence without the stack step, with aws-report
 // after every run.
 //
@@ -8,7 +8,7 @@
 //   SUITE_STEPS=load,page-budget make perf-suite       run some steps only
 //
 // Knobs (environment; every k6 knob in `make knobs` passes through):
-//   SUITE_STEPS=stack,smoke,load,spike,page-breakpoint,sign-in-burst,soak,page-budget
+//   SUITE_STEPS=stack,smoke,load,spike,browser-spike,page-breakpoint,sign-in-burst,soak,page-budget
 //   SUITE_LOAD_VUS=30 (dev's shopper count of 2026-09-13)  SUITE_SPIKE_VUS=10 (×10 at the spike's top)
 //   SUITE_LOAD_DURATION=5m  SUITE_SOAK=10m  SUITE_SIGNIN_DURATION=3m  PAGE_MAX_RPS=20  RAMP=10m
 // Each run is an ordinary bin/k6run run (its testid, Grafana region, verdict); the table reads results/<testid>.json
@@ -21,7 +21,7 @@ import {budgets, fmtDuration, pct, root, summaryOf, table, targetFile} from './l
 const target = process.env.TARGET || 'local';
 const file = targetFile(target);
 const local = target === 'local';
-const ALL = ['stack', 'smoke', 'load', 'spike', 'page-breakpoint', 'sign-in-burst', 'soak', 'page-budget'];
+const ALL = ['stack', 'smoke', 'load', 'spike', 'browser-spike', 'page-breakpoint', 'sign-in-burst', 'soak', 'page-budget'];
 const steps = (process.env.SUITE_STEPS || ALL.join(',')).split(',').map((s) => s.trim()).filter((s) => ALL.includes(s) && (local || s !== 'stack'));
 const stamp = () => new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
 const stores = process.env.STORES || (file.stores.some((s) => s.name === 'org1-store2') ? 'org1-store2' : file.stores[0].name);
@@ -102,6 +102,24 @@ for (const step of steps) {
     const {summary} = k6('spike', 'storefront/browse', 'spike', {PEAK_VUS: process.env.SUITE_SPIKE_VUS || '10'});
     const rec = summary?.metrics?.['http_req_duration{scenario:recovery}'];
     if (rec) check('spike', 'recovery probe p95 after the spike', `${(rec.values['p(95)'] / 1000).toFixed(2)} s`, '3 s', Object.values(rec.thresholds || {}).every((t) => t.ok) ? 'pass' : 'FAIL');
+  }
+  if (step === 'browser-spike') {
+    // The same spike, with Chromium shoppers measured before it, in it and after it; one row per window, its budget
+    // read from the threshold lines thresholds.js gave the run.
+    const {summary} = k6('browser-spike', 'browser/storefront-spike', 'spike', {PEAK_VUS: process.env.SUITE_SPIKE_VUS || '10'});
+    const sec = (v) => (v === undefined ? '-' : `${(v / 1000).toFixed(2)} s`);
+    for (const phase of ['ui-base', 'ui-peak', 'ui-recovery']) {
+      const lines = [[`browser_web_vital_lcp{scenario:${phase}}`, 'p(75)', sec], [`browser_web_vital_ttfb{scenario:${phase}}`, 'p(75)', sec],
+        [`browser_http_req_duration{scenario:${phase},resource_type:Fetch}`, 'p(95)', sec], [`journey_errors{scenario:${phase}}`, 'rate', pct]];
+      // a window where no visit finished has no sample: k6 prints its trends as 0 and passes them; its failed visits say why
+      const got = lines.map(([k, stat, f]) => {
+        const values = summary?.metrics?.[k]?.values;
+        return values?.[stat] === undefined || (stat !== 'rate' && !values.max) ? '-' : f(values[stat]);
+      });
+      const budget = lines.map(([k]) => Object.keys(summary?.metrics?.[k]?.thresholds || {})[0] || '-');
+      const ok = lines.every(([k]) => Object.values(summary?.metrics?.[k]?.thresholds || {}).every((t) => t.ok));
+      check('browser-spike', `${phase}: LCP p75, TTFB p75, API p95, failed visits`, got.join(', '), budget.join(', '), summary && ok ? 'pass' : 'FAIL');
+    }
   }
   if (step === 'page-breakpoint') {
     const {summary} = k6('page-breakpoint', 'storefront/page-breakpoint', 'breakpoint', {PAGE_MAX_RPS: String(maxRps), RAMP: ramp});

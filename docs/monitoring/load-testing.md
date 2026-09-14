@@ -45,7 +45,8 @@ on every page, all CSS inlined twice — fail it.
 
 **The whole picture.** `make perf-suite` runs, on the capped stack (it starts it: `make stack-up`), smoke → load
 (storefront-browse, `SUITE_LOAD_VUS` 30 shoppers for `SUITE_LOAD_DURATION` 5 min) → spike (`SUITE_SPIKE_VUS` 10, ×10 at
-the top, with the recovery probe) → page breakpoint (`PAGE_MAX_RPS` 20 over `RAMP` 10 min) → sign-in burst
+the top, with the recovery probe) → the browser spike (the same spike, Chromium shoppers before, in and after it) → page
+breakpoint (`PAGE_MAX_RPS` 20 over `RAMP` 10 min) → sign-in burst
 (`SUITE_SIGNIN_DURATION` 3 min) → soak (`SUITE_SOAK` 10 min) → the page budget, and ends with one table: every check —
 k6's thresholds, the container at its cap, memory, OOM kills and restarts, CPU per page view and per sign-in, the
 recovery p95, the knee, the per-hop sign-in p95s, memory growth, pages over budget — with its number, its budget and
@@ -73,6 +74,7 @@ JVM & Runtime (GC/heap during a soak). The fix goes in the application; the numb
 - **load** is the baseline: the numbers to record.
 - **load** holds its peak for `DURATION` (5 min): long enough for a deployed autoscaler, which needs 3–6 min to add a task, to act.
 - **stress / spike** loosen the SLO multipliers (2×/3×): they answer "does it degrade gracefully" — watch for 5xx and pool timeouts, not p95. A spike of storefront-browse or production-mix also runs a **recovery probe**: one home page every 3 s from the start, and a `recovery` scenario from 20 s after the spike ends, held to the plain page SLO (`http_req_duration{scenario:recovery}`). A system that never recovers fails there.
+- **the spike in a browser**: `browser-storefront-spike` is storefront-browse's spike, with Chromium shoppers measured through it in three windows. `ui-base` is the 30 s before it (`BROWSER_VUS`), `ui-peak` the minute at 10× (`BROWSER_SPIKE_VUS`, 3 × `BROWSER_VUS` by default), and `ui-recovery` runs from 20 s after it to the end. Each visit is one page of the page mix in a fresh context, a first visit; on the home page the shopper types into the search box, so catalog's suggest is called from the browser. Read it by window and page: `browser_web_vital_lcp{scenario:ui-peak}`, `browser_web_vital_ttfb{journey:visit-product}`, and `browser_http_req_duration{scenario:ui-peak,resource_type:Fetch}` for the storefront's API calls from the browser. Before and after the spike, the plain browser SLO holds (LCP p75 4 s, TTFB p75 1.5 s, API p95 800 ms, failed visits under 2 %); during it the spike's 3×, and failed visits under 5 %.
 - **soak** holds for `SOAK_DURATION` (30 min): read JVM & Runtime *Heap after GC* (a rising floor is a leak), *Cache size*, gateway sessions, file descriptors. The verdict adds each container's working-set growth after a 5-minute warm-up and fails above 10 % of its limit per hour.
 - **breakpoint** ramps until a threshold breaks and aborts: the annotation end is the knee; the saturation strip at that moment is the bottleneck. `storefront-page-breakpoint` is the storefront's: it ramps full page views (landing-ui renders each) to `PAGE_MAX_RPS` (20/s) and aborts when a page misses its 3 s SLO, where `storefront-breakpoint` ramps two catalog APIs and never a page.
 - **sign-ins**: `platform-sign-in-burst` paces seller sign-ins at dev's pace, 9 a minute under its 10/min limiter (`SIGNIN_RATE`; locally the limiter allows 1000/min and never binds, and a quarter-vCPU uaa is the limit) and names each hop (`seller:login-submit`, the password check; `-authorize`; `-callback`); the verdict prints uaa's CPU per sign-in.
@@ -151,10 +153,19 @@ each other by the names the config already uses; on the host the same names stil
 Knobs: `LOAD_FLAVOUR` (default `dev`), `LOAD_CPU_FACTOR` (default `0.45`), `LOAD_MEM` (unset: the flavour's sizes),
 `LOAD_POOL_SIZE` (Hikari maximum per service, default the flavour's `db_pool_size`, 10 with `off`), `LOAD_TAG` /
 `LOAD_REGISTRY` (which images), `JAVA_TOOL_OPTIONS`, `OTEL_SDK_DISABLED` (default `false`: everything exports to the
-collector), `LOAD_WAIT` (default 900 s).
+collector), `LOAD_WAIT` (default 900 s), `LOAD_CDN` (default `true`: the storefront's static files come from MinIO).
 
-What still differs from a deployment: one task per service, no autoscaling and no load balancer; the laptop's cores
-are not Fargate's, so the factor is a calibration, not an identity; PostgreSQL runs with default settings rather than
-RDS's parameter group; there is no TLS termination, and the storefront's static assets are served by the container
-rather than a CDN, which costs landing-ui CPU that dev does not spend. Record `make stack-stats` alongside the run so a
-container at its cap is visible.
+The storefront's static files come from a CDN, as on dev. landing-ui publishes its build's `/_next/static` to MinIO
+at boot (`minio-init` makes the public-read bucket), and a page points a browser at `http://localhost:9000/…`, as
+dev's pages point at CloudFront. A first visit's 14–16 scripts and stylesheets therefore never touch landing-ui's CPU
+cap. `make stack-up` prints which mode landing-ui came up in; `LOAD_CDN=false` has it serve them itself.
+
+What still differs from a deployment:
+
+- One task per service, with no autoscaling and no load balancer.
+- The laptop's cores are not Fargate's, so the factor is a calibration, not an identity.
+- PostgreSQL runs with default settings rather than RDS's parameter group.
+- There is no TLS termination.
+- MinIO serves the static files uncompressed over HTTP/1.1, where CloudFront uses brotli over HTTP/2.
+
+Record `make stack-stats` alongside the run so a container at its cap is visible.

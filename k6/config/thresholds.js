@@ -13,6 +13,11 @@ const PAGE_P95_MS = 3000;
 const PAGES = ['home', 'category', 'product', 'search'];
 // A seller sign-in end to end (the three hops after the start).
 const SELLER_LOGIN_P95_MS = 2500;
+// What a shopper's browser may wait (p75, as Web Vitals are judged), and the storefront's API calls from the browser
+// (resource_type Fetch: the search box's catalog suggest and category tree, content's site) at catalog:search's p95.
+const BROWSER_LCP_P75_MS = 4000;
+const BROWSER_TTFB_P75_MS = 1500;
+const BROWSER_API_P95_MS = 800;
 
 const LAYERS = {
   storefront: (m) => ({
@@ -51,11 +56,11 @@ const LAYERS = {
     seller_login_ms: p95(SELLER_LOGIN_P95_MS, m),
     'http_req_duration{name:spg:domain-lookup}': p95(800, m),
   }),
-  browser: () => ({
-    browser_web_vital_lcp: ['p(75)<4000'],
+  browser: (m) => ({
+    browser_web_vital_lcp: [`p(75)<${BROWSER_LCP_P75_MS * m}`],
     browser_web_vital_cls: ['p(75)<0.1'],
-    browser_web_vital_inp: ['p(75)<200'],
-    browser_web_vital_ttfb: ['p(75)<1500'],
+    browser_web_vital_inp: [`p(75)<${200 * m}`],
+    browser_web_vital_ttfb: [`p(75)<${BROWSER_TTFB_P75_MS * m}`],
     browser_http_req_failed: ['rate<0.05'],
     browser_errors: ['count<5'],
   }),
@@ -94,6 +99,25 @@ export function recoveryThresholds(profile) {
     'http_req_duration{scenario:recovery}': p95(PAGE_P95_MS, 1),
     'http_req_failed{scenario:recovery}': ['rate<0.01'],
   };
+}
+
+/**
+ * browser/storefront-spike.js: the storefront layer's lines for the HTTP shoppers that make the load, and each phase of
+ * the browser shoppers (profiles.js browserPhases) on its own. Before the spike and from 20 s after it, a page meets the
+ * plain browser SLO and at most 2 % of visits fail; during it, the spike's multiplier and at most 5 %: a shopper may
+ * wait, but should not get an error. A smoke keeps only the storefront's failure lines.
+ */
+export function browserSpike(profile) {
+  const out = sloFor('storefront', profile);
+  if (profile === 'smoke') return out;
+  const m = MULTIPLIER[profile] || 1;
+  [['ui-base', 1, 0.02], ['ui-peak', m, 0.05], ['ui-recovery', 1, 0.02]].forEach(([phase, k, failed]) => {
+    out[`browser_web_vital_lcp{scenario:${phase}}`] = [`p(75)<${BROWSER_LCP_P75_MS * k}`];
+    out[`browser_web_vital_ttfb{scenario:${phase}}`] = [`p(75)<${BROWSER_TTFB_P75_MS * k}`];
+    out[`browser_http_req_duration{scenario:${phase},resource_type:Fetch}`] = p95(BROWSER_API_P95_MS, k);
+    out[`journey_errors{scenario:${phase}}`] = [`rate<${failed}`];
+  });
+  return out;
 }
 
 export function sloFor(layer, profile) {

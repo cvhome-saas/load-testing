@@ -31,7 +31,8 @@ prom_url="${PROMETHEUS_URL:-$(python3 -c "import json,sys; print(json.load(open(
 out=()
 if [ -z "${NO_PROM:-}" ] && [ -n "$prom_url" ]; then
   export K6_PROMETHEUS_RW_SERVER_URL="$prom_url"
-  export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(95),p(99),avg,max,min}"
+  # p(75): Web Vitals are judged at p75 (thresholds.js, the Web Vitals panels)
+  export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(75),p(95),p(99),avg,max,min}"
   # stale markers end every series the moment the run ends, which empties "last value" panels; off unless asked
   export K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-false}"
   out=(--out experimental-prometheus-rw)
@@ -56,7 +57,9 @@ close_annotation() {
 }
 trap close_annotation EXIT
 export K6_BROWSER_HEADLESS="${K6_BROWSER_HEADLESS:-true}"
-export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1}"
+# HttpsUpgrades off: Chromium otherwise tries every http:// navigation as https:// first, and against spg's :443 the
+# attempt hangs 3 s before it falls back, which put 3 s into every local TTFB and LCP. AWS serves https, which never pays it.
+export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1,disable-features=HttpsUpgrades}"
 
 mkdir -p results
 echo "k6run  script=$script  layer=$layer  profile=$PROFILE  target=$TARGET  run_id=$RUN_ID  testid=$TESTID ${out[*]+${out[*]}}"

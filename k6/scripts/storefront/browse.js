@@ -3,14 +3,12 @@
  * Shoppers browsing the seeded stores: home → category → product (→ search). Closed model with think time. At
  * PROFILE=spike a steady home-page probe runs beside the spike and must be back inside the page SLO once it ends.
  */
-import { sleep } from 'k6';
 import execution from 'k6/execution';
 import { env, storeFor } from '../../lib/core/env.js';
 import { build, scenario, recoveryProbe } from '../../config/profiles.js';
 import { recoveryThresholds } from '../../config/thresholds.js';
 import { catalogFor } from '../../lib/journeys/shopper/data.js';
-import { browseHome, browseCategory, browseProduct } from '../../lib/journeys/shopper/browse.js';
-import { searchJourney } from '../../lib/journeys/shopper/search.js';
+import { browseVisit } from '../../lib/journeys/shopper/browse.js';
 import { pageView } from '../../lib/journeys/shopper/pages.js';
 
 export const options = build({ layer: 'storefront', script: 'storefront-browse',
@@ -25,15 +23,5 @@ export function probe() {
 
 export function shoppers() {
   const store = storeFor(execution.vu.idInTest);
-  const data = catalogFor(store);
-  browseHome(store, data);
-  sleep(1 + Math.random() * 2);
-  browseCategory(store, data);
-  sleep(1 + Math.random() * 2);
-  browseProduct(store, data);
-  sleep(1 + Math.random() * 3);
-  if (Math.random() < 0.3) {
-    searchJourney(store, data);
-    sleep(1 + Math.random());
-  }
+  browseVisit(store, catalogFor(store));
 }

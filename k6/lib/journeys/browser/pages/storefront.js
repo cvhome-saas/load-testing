@@ -3,6 +3,7 @@
  * Page objects of the storefront. Each method drives one screen and asserts what a shopper would see,
  * with expect() from k6-testing (auto-retrying on locators). Locators wait on their own before an action.
  */
+import { browserPageViews } from '../../../core/metrics.js';
 import { assert } from '../context.js';
 import { sel, byRole } from '../selectors.js';
 
@@ -17,6 +18,12 @@ export class Storefront {
     return `${this.store.url}/${this.lang}${path || ''}`;
   }
 
+  /** Open a page: one document, one landing-ui render, counted for the verdict's CPU per page view. */
+  async visit(path) {
+    browserPageViews.add(1);
+    return this.page.goto(this.url(path));
+  }
+
   /** k6-testing has no toHaveURL: poll the page URL ourselves, throw like a failed assertion would. */
   async expectUrl(re, timeoutMs) {
     const deadline = Date.now() + (timeoutMs || 20000);
@@ -28,24 +35,46 @@ export class Storefront {
   }
 
   async home() {
-    await this.page.goto(this.url('/'));
+    await this.visit('/');
     await assert.soft(this.page.locator('main')).toBeVisible();
   }
 
   async category(slug) {
-    await this.page.goto(this.url(`/category/${slug}`));
+    await this.visit(`/category/${slug}`);
     await assert.soft(this.page.locator('main')).toBeVisible();
   }
 
   async product(slug) {
-    await this.page.goto(this.url(`/product/${slug}`));
+    await this.visit(`/product/${slug}`);
     await assert.soft(byRole(this.page, sel.product.addToCart)).toBeVisible();
   }
 
   async search(term) {
-    await this.page.goto(this.url(`/search?q=${encodeURIComponent(term)}`));
+    await this.visit(`/search?q=${encodeURIComponent(term)}`);
     await this.expectUrl(/\/search\?q=/);
     await assert.soft(this.page.locator('body')).toBeVisible();
+  }
+
+  /**
+   * Type a term into the header's search box a key at a time, until catalog's suggestions answer: the storefront
+   * calling catalog from the browser (the first keystroke also fetches the category tree and the site for the
+   * navigation hits), and keystrokes for INP. False when no search box is visible: the store's layout can keep it out
+   * of the header (layout.search).
+   */
+  async suggest(term) {
+    const boxes = this.page.getByRole('combobox');
+    const count = await boxes.count();
+    let box = null;
+    for (let i = 0; i < count && !box; i += 1) {
+      if (await boxes.nth(i).isVisible()) box = boxes.nth(i);
+    }
+    if (!box) return false;
+    await this.settle();
+    await Promise.all([
+      this.page.waitForResponse(/\/catalog\/api\/v2\/products\/suggest\?/, { timeout: 20000 }),
+      box.pressSequentially(term, { delay: 120 }),
+    ]);
+    return true;
   }
 
   async addToCart() {
@@ -110,7 +139,7 @@ export class Storefront {
   }
 
   async login(username, password) {
-    await this.page.goto(this.url('/login?auth=1'));
+    await this.visit('/login?auth=1');
     await this.settle();
     await this.page.locator(sel.login.username).fill(username);
     await this.page.locator(sel.login.password).fill(password);
@@ -119,7 +148,7 @@ export class Storefront {
   }
 
   async register(user) {
-    await this.page.goto(this.url('/register'));
+    await this.visit('/register');
     await this.settle();
     const p = this.page;
     await p.locator('#username').fill(user.username);

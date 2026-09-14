@@ -2,10 +2,12 @@
 /**
  * The read path a shopper takes: each journey is the SSR page plus the API reads landing-ui makes for it.
  */
+import { sleep } from 'k6';
 import { storefrontEdge } from '../../core/edges.js';
 import { journey } from '../../core/metrics.js';
 import { CatalogClient, InventoryClient, ContentClient, MerchantClient, StorefrontPagesClient } from '../../clients/index.js';
 import { randomOf } from './data.js';
+import { searchJourney } from './search.js';
 
 function skusOf(body, max) {
   if (!body) return [];
@@ -85,4 +87,21 @@ export function browseContent(store, data) {
     if (data.contentPages.length > 0) ok = content.page(randomOf(data.contentPages), [200, 404]).ok && ok;
     return ok;
   });
+}
+
+/**
+ * One shopper's visit, with think time: home → category → product, and a search three times in ten. It is the shopper
+ * of storefront-browse and the load under browser-storefront-spike, so both spikes send the same traffic.
+ */
+export function browseVisit(store, data) {
+  browseHome(store, data);
+  sleep(1 + Math.random() * 2);
+  browseCategory(store, data);
+  sleep(1 + Math.random() * 2);
+  browseProduct(store, data);
+  sleep(1 + Math.random() * 3);
+  if (Math.random() < 0.3) {
+    searchJourney(store, data);
+    sleep(1 + Math.random());
+  }
 }

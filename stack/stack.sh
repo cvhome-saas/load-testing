@@ -21,6 +21,8 @@
 #   LOAD_MEM=              one memory limit for every platform and infra container, over the flavour's sizes
 #   LOAD_POOL_SIZE=        Hikari maximum pool per JVM; default the flavour's rds.db_pool_size (dev 3), 10 when off
 #   LOAD_TAG=latest        the platform images' tag; LOAD_TAG_<SERVICE> (LOAD_TAG_LANDING_UI=…) for one service apart
+#   LOAD_CDN=true          landing-ui publishes its static files to MinIO at boot and browsers load them there, as from
+#                          CloudFront on AWS; false: landing-ui serves /_next/static itself, off its own CPU cap
 #   LOAD_REGISTRY=  OTEL_SDK_DISABLED=false  LOAD_WAIT=900 (seconds; a JVM on a quarter core starts slowly)
 set -euo pipefail
 
@@ -118,9 +120,18 @@ case "${1:-}" in
     sizes="$(resolve_sizes)"; eval "$sizes"
     "${compose[@]}" up -d
     wait_healthy
+    # Where a browser gets the storefront's static files: MinIO (as CloudFront on AWS) or landing-ui itself. landing-ui
+    # logs it once, after its upload; a recreated landing-ui can still be uploading when the JVMs are long UP.
+    prefix=""
+    for _ in $(seq 1 30); do
+      prefix="$("${compose[@]}" logs --no-log-prefix landing-ui 2>/dev/null | grep -o 'asset prefix set to [^ ]*' | tail -1 || true)"
+      [ -n "$prefix" ] && break
+      sleep 2
+    done
     for s in landing-ui console-ui spg; do
       curl -s -o /dev/null -w "    $s %{http_code}\n" "http://localhost:$(port_of "$s")/" || true
     done
+    echo "    landing-ui static files: ${prefix:-no [static-assets] line in its log after 60 s} (LOAD_CDN=${LOAD_CDN:-true})"
     echo "==> applied (docker inspect):"; applied_limits
     echo "==> http://gateway.com:8000  http://org1-store1.spg-507f1f77.gateway.com  http://localhost:3000 (Grafana)"
     ;;
@@ -150,6 +161,6 @@ case "${1:-}" in
     done
     ;;
   *)
-    sed -n '2,24p' "$0"; exit 2
+    sed -n '2,26p' "$0"; exit 2
     ;;
 esac
