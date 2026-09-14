@@ -40,11 +40,25 @@ make help                                                # every target and ever
 ```
 
 Everything goes through `bin/k6run`, which adds the `testid`/`layer`/`target` tags, streams samples to
-Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local.
+Prometheus and writes `results/<testid>.json`. `NO_PROM=1` keeps a run local. After every run but a smoke, the
+**verdict** (`scripts/verdict.mjs`, `make verdict TESTID=…`) reads what the run used of each load-stack container —
+CPU against its cap, memory against its limit, OOM kills, restarts, landing-ui's CPU per page view — and fails the run
+when a budget in `k6/config/budgets.js` breaks, as a threshold would (`NO_VERDICT=1` skips it).
+`make perf-suite` is all of it in one command, on the capped stack: `make stack-up`, then smoke → load (30
+shoppers, 5 min) → spike with the recovery probe → page breakpoint → sign-in burst → a 10-minute soak → the page
+budget, ending with one table of every check, its number, its budget and pass or fail (`TARGET=aws make perf-suite`:
+the same without the stack, with `aws-report` after every run; `SUITE_STEPS=load,page-budget` runs some steps only).
+`make page-budget` checks what the storefront ships instead: for every theme (through `?theme=`) and the store's
+home, a category, a product and a search, the HTML, the RSC payload, the stylesheets and scripts and any of them that
+carries another theme, and inline CSS that appears twice — against `PAGE` in the same file.
 
 The stack is `stack/docker-compose.yml`: every platform service as the image `bootBuildImage` produces, one
-container each, 1 GB each (`LOAD_MEM`), plus postgres, minio, spg and the monitoring five (otel-collector, loki,
-tempo, prometheus, grafana). Telemetry is on by default. **Images are a pre-step, never built here**:
+container each, **held to the CPU and memory its Fargate task gets** — `LOAD_FLAVOUR=dev` by default (`staging`,
+`prod`, `ephemeral`, or `off` for the old uncapped stack), sizes copied from `../cvhome-platform` into
+`stack/fargate-sizes.json` — plus postgres at its RDS class, minio, spg and the monitoring five (otel-collector,
+loki, tempo, prometheus, grafana), which stay uncapped. A Fargate vCPU is slower than a laptop core, so every CPU cap
+is scaled by `LOAD_CPU_FACTOR` (0.45, measured against dev; `make stack-sizes` prints the table, `make stack-limits` what docker
+applied). Telemetry is on by default. **Images are a pre-step, never built here**:
 `./gradlew bootBuildImage` in `../cvhome` (tags `latest`), or `LOAD_REGISTRY=… LOAD_TAG=2.0.0` to pull a
 released version. `./gradlew bootBuildImage -Pnative` builds the twelve Spring services as GraalVM native executables
 under the same names; tag them apart (`:native`) and run `LOAD_TAG=native LOAD_MEM=512m make stack-up` — the native
@@ -53,6 +67,8 @@ needs nothing else; `make hosts` prints the `/etc/hosts` lines a browser on this
 
 ```bash
 make stack-up                                            # waits until every Java service answers /actuator/health
+make stack-sizes                                         # the CPU and memory each container gets (LOAD_FLAVOUR, LOAD_CPU_FACTOR)
+make stack-limits                                        # what docker applied to each running container
 make stack-stats                                         # memory and CPU per container during a run
 make stack-logs S=catalog                                # one service's logs
 make stack-down                                          # keep the database;  make stack-down-hard drops it
@@ -78,6 +94,7 @@ TARGET=aws make preflight                                   # gateway, uaa, stor
 TARGET=aws STORES=org1-store2 make storefront-browse PROFILE=load PEAK_VUS=30 DURATION=3m
 TARGET=aws STORES=org1-store2 make admin-store-settings PROFILE=load PEAK_VUS=10 DURATION=3m
 TARGET=aws make dash                                        # the run on "Load test vs app"
+TARGET=aws make aws-report TESTID=<testid>                  # what ECS did during it: CPU/memory per service, tasks, scaling, stops
 make aws-down
 ```
 
@@ -96,6 +113,11 @@ local stack:
   own CloudWatch dashboard, `terraform output dashboard_url` in `../cvhome-platform`).
 - **`make clean` is the API pass only.** The SQL pass needs the load stack's postgres container; RDS is private,
   so orders, carts and shoppers the suite created stay until an operator removes them.
+- **The containers are ECS's.** The verdict has no container to read here; `make aws-report TESTID=…` reads, read-only,
+  every ECS service's CPU and memory as one-minute maxima over the run (and minutes at 90 %+), desired/running/pending
+  tasks, scaling activities and service events in the window, and tasks stopped in it with their reason, next to k6's
+  summary. It needs AWS credentials (`aws sso login`) and says so without them; `awsRegion` and `ecsClusterPrefix` in
+  the target file say where to look. ECS keeps stopped tasks for about an hour, so run it soon after.
 - The preflight's unknown-subdomain check only means something on lcl; it warns on a deployment, which is fine.
 - The two stacks share the host ports, so `make aws-up` and `make stack-up` do not run at the same time.
 
@@ -154,35 +176,39 @@ script that picks a journey and a profile.
 
 `make <layer>-<name>`; every one honours `PROFILE`, `TARGET`, `RUN_ID` and the knobs in `make knobs`.
 
-| layer      | script               | model                          | what it exercises                                                                             | writes       |
-| ---------- | -------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- | ------------ |
-| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search                            | —            |
-| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                  | —            |
-| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                            | —            |
-| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                       | —            |
-| storefront | soak                 | constant VUs for DURATION      | the browse journey for hours: leaks, pools, caches                                            | —            |
-| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                    | carts        |
-| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                            | orders       |
-| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                              | orders       |
-| shopper    | registration         | open                           | cua registration bursts                                                                       | shoppers     |
-| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                              | orders       |
-| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                 | —            |
-| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it | —            |
-| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete        | orgs, stores |
-| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                | products     |
-| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                          | pages        |
-| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                         | —            |
-| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                          | —            |
-| platform   | gateway-login        | open, ≤ limiter                | the two-hop sign-in; in-memory session growth                                                 | sessions     |
-| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                 | —            |
-| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                        | —            |
-| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                          | —            |
-| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                         | orders       |
-| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                             | shoppers     |
-| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                              | —            |
-| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                    | yes          |
+| layer      | script               | model                          | what it exercises                                                                                | writes       |
+| ---------- | -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------ |
+| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search; spike adds a recovery probe  | —            |
+| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                     | —            |
+| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                               | —            |
+| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                          | —            |
+| storefront | page-breakpoint      | ramping rate to PAGE_MAX_RPS   | full page views (home, category, product, search) until a page misses its SLO: landing-ui's knee | —            |
+| storefront | soak                 | constant VUs for SOAK_DURATION | the browse journey for 30 min+: leaks, pools, caches; the verdict reads the memory slope         | —            |
+| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                       | carts        |
+| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                               | orders       |
+| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                                 | orders       |
+| shopper    | registration         | open                           | cua registration bursts                                                                          | shoppers     |
+| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                                 | orders       |
+| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                    | —            |
+| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it    | —            |
+| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete           | orgs, stores |
+| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                   | products     |
+| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                             | pages        |
+| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                            | —            |
+| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                             | —            |
+| platform   | gateway-login        | open, ≤ limiter                | the sign-in, timed per hop; in-memory session growth                                             | sessions     |
+| platform   | sign-in-burst        | open, under the limiter        | sign-ins at dev's pace (9/min, SIGNIN_RATE): uaa's cost per sign-in, per hop                     | sessions     |
+| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                    | —            |
+| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                           | —            |
+| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                             | —            |
+| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                            | orders       |
+| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                                | shoppers     |
+| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                                 | —            |
+| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                       | yes          |
 
-Profiles: `smoke` (1 iteration), `load`, `stress` (2–3×), `spike` (10× for a minute), `soak` (DURATION),
+Profiles: `smoke` (1 iteration), `load` (holds `DURATION`, 5 min, so a deployed autoscaler has time to act),
+`stress` (2–3×), `spike` (10× for a minute, then two at base; storefront-browse and production-mix add a recovery
+probe that must be back inside the page SLO 20 s after the spike), `soak` (`SOAK_DURATION`, 30 min),
 `breakpoint` (ramping rate, thresholds abort). Thresholds are per layer in `k6/config/thresholds.js`; the starting
 numbers are for the local stack and should be tightened per target once a baseline exists.
 
@@ -226,18 +252,20 @@ alerts, runbooks, `load-testing.md` (how a run shows up and how to turn it into 
 
 ## Prerequisites on the application side (not done here)
 
-| change                                        | where in `../cvhome`                                                        | why                                    |
-| --------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
-| build the images (`./gradlew bootBuildImage`) | —                                                                           | the stack runs them; it never builds   |
-| Hikari pool size                              | `LOAD_POOL_SIZE` here (default 10) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
+| change                                        | where in `../cvhome`                                                                                             | why                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| build the images (`./gradlew bootBuildImage`) | —                                                                                                                | the stack runs them; it never builds   |
+| Hikari pool size                              | `LOAD_POOL_SIZE` here (default: the flavour's `db_pool_size`, 3 on dev) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
 
 JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
 `../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.
 
 ## Known limits
 
-- The local stack runs the storefront on `next dev` and the console on the Angular dev server: SSR and browser
-  numbers are dev-server bound. API numbers are one JVM per service on one machine and a single postgres.
+- The load stack is one task per service at dev's sizes, with no load balancer and no autoscaler (dev adds a
+  landing-ui task after 3–6 minutes of load, which a local run never will). Its CPU caps are dev's × `LOAD_CPU_FACTOR`,
+  a calibration measured on the storefront, not an identity; postgres approximates its RDS class. `make aws-report`
+  is where a deployment's own numbers come from.
 - A store created through the console answers 409 on its storefront `site` document until
   [cvhome #324](https://github.com/cvhome-saas/cvhome/pull/324) lands; the home page still renders (it reads the
   layout), so only the `content:site` call of the content journey is affected on the fixture store.

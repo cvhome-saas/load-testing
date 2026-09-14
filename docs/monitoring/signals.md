@@ -125,6 +125,28 @@ Switch: `spring.cache.caffeine.spec: recordStats` (`common-config.yml`). Hand-bu
 
 `otlp_exporter_seen_total`, `otlp_exporter_exported_total` (per exporter), `processedSpans_total`, `up{job="otel-collector"}`.
 
+### Containers — cAdvisor (job `cadvisor`, the load stack and the aws-only monitoring)
+
+Only compose containers are kept, only these series, and cAdvisor's container labels are renamed at scrape time
+(`prometheus.yml`): `service` (the compose service), `project` (`cvhome-load` for the load stack, `cvhome-aws` for the
+aws-only monitoring), `flavour` and `cpu_factor` (the shape `stack/stack.sh` started the container in).
+
+| Prometheus name | meaning |
+| --- | --- |
+| `container_cpu_usage_seconds_total` | CPU seconds the container used |
+| `container_cpu_cfs_periods_total`, `container_cpu_cfs_throttled_periods_total` | CFS periods, and those in which the quota ran out |
+| `container_spec_cpu_quota`, `container_spec_cpu_period` | the CPU cap: quota / period cores (quota -1 or 0: no cap) |
+| `container_memory_working_set_bytes` | memory the kernel cannot reclaim — what the OOM killer compares with the limit |
+| `container_spec_memory_limit_bytes` | the memory limit (a huge number: no limit) |
+| `container_oom_events_total` | OOM kills in the container |
+| `container_start_time_seconds` | when its current process started; a change is a restart |
+
+### Node runtime (landing-ui) — OTel `instrumentation-runtime-node`
+
+`nodejs_eventloop_delay_p99_seconds`, `nodejs_eventloop_utilization_ratio`, `v8js_memory_heap_used_bytes` and
+`v8js_memory_heap_limit_bytes` (per `v8js_heap_space_name`), exported once a minute. The rest of the `nodejs.*` and
+`v8js.*` families is dropped by the collector.
+
 ### k6 (load tests, remote-written by `load-testing/bin/k6run`)
 
 | Prometheus name | labels | meaning |
@@ -182,4 +204,4 @@ every request and every scheduled task.
 | cache meters | `common-config.yml` | `spring.cache.caffeine.spec: recordStats` |
 | outbox meters | each service's `application.yml` | `cvhome.metrics.outbox.enabled/table` |
 | span-name hygiene | `landing-ui/storefront/src/shell/telemetry.ts`, collector `transform/span_names` | — |
-| what the collector keeps | collector `filter/drop_metrics` | drops `spring.*`, `disk.*`, `logback.*`, `tasks.*`, `nodejs.*`, `v8js.*`, `processedLogs.*` |
+| what the collector keeps | collector `filter/drop_metrics` | drops `spring.*`, `disk.*`, `logback.*`, `tasks.*`, `processedLogs.*`, and `nodejs.*` / `v8js.*` except the event-loop delay p99 and utilisation and the heap used and limit |

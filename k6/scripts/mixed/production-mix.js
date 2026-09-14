@@ -2,12 +2,14 @@
 /**
  * A normal day, all at once: shopper reads, searches, carts and orders on the fixture store, admins reading
  * and editing through the gateway, and a few real browsers — concurrently, so cross-service interference and
- * the shared database show up. Ratios live in k6/config/mix.js; RATE scales them together.
+ * the shared database show up. Ratios live in k6/config/mix.js; RATE scales them together. At PROFILE=spike a
+ * steady home-page probe runs beside the spike and must be back inside the page SLO once it ends.
  *   make mixed-production-mix PROFILE=load RATE=60 DURATION=10m
  */
 import execution from 'k6/execution';
-import { storeFor } from '../../lib/core/env.js';
-import { build, scenario, browserScenario } from '../../config/profiles.js';
+import { env, storeFor } from '../../lib/core/env.js';
+import { build, scenario, browserScenario, recoveryProbe } from '../../config/profiles.js';
+import { recoveryThresholds } from '../../config/thresholds.js';
 import { mix } from '../../config/mix.js';
 import { withFixtures } from '../../lib/fixtures/provision.js';
 import { sessionWithRole } from '../../lib/core/session.js';
@@ -20,6 +22,7 @@ import { storeReads } from '../../lib/journeys/admin/storeReads.js';
 import { ordersList } from '../../lib/journeys/admin/ordersList.js';
 import { catalogEdit } from '../../lib/journeys/admin/catalogManagement.js';
 import { browserBrowse } from '../../lib/journeys/browser/browse.js';
+import { pageView } from '../../lib/journeys/shopper/pages.js';
 
 export const options = build({ layer: 'mixed', script: 'production-mix', needs: ['store', 'catalog', 'sessions'],
   scenarios: {
@@ -30,8 +33,10 @@ export const options = build({ layer: 'mixed', script: 'production-mix', needs: 
     adminReads: scenario('rate', 'adminReads', mix.adminReads),
     adminWrites: scenario('rate', 'adminWrites', mix.adminWrites),
     browsers: browserScenario('browsers'),
+    ...recoveryProbe('probe'),
   },
   thresholds: {
+    ...recoveryThresholds(env.PROFILE),
     'http_req_failed{layer:storefront}': ['rate<0.02'],
     'http_req_failed{layer:shopper}': ['rate<0.02'],
     'http_req_failed{layer:admin}': ['rate<0.02'],
@@ -53,6 +58,11 @@ export function browse(data) {
   if (pick < 0.4) browseHome(target.store, target.catalog);
   else if (pick < 0.7) browseCategory(target.store, target.catalog);
   else browseProduct(target.store, target.catalog);
+}
+/** PROFILE=spike: the steady page view beside the spike (profiles.js recoveryProbe). */
+export function probe() {
+  const store = storeFor(1);
+  pageView(store, catalogFor(store), 'home');
 }
 export function search(data) { const t = fixtureData(data); searchJourney(t.store, t.catalog); }
 export function cart(data) { const t = fixtureData(data); cartJourney(t.store, t.catalog); }

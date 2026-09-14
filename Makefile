@@ -10,9 +10,9 @@ TARGET := $(if $(TARGET),$(TARGET),local)
 SCRIPTS := $(shell find k6/scripts -name '*.js' | sort)
 EXPLICIT := k6/scripts/smoke.js k6/scripts/selftest.js k6/scripts/fixtures.js k6/scripts/cleanup.js
 
-.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash \
-        stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats hosts monitoring-check \
-        aws-up aws-down aws-ps \
+.PHONY: help knobs preflight inspect build selftest smoke all-smoke fixtures clean prom-check dash verdict page-budget perf-suite \
+        stack-up stack-down stack-down-hard stack-ps stack-logs stack-stats stack-sizes stack-limits sizes-sync hosts monitoring-check \
+        aws-up aws-down aws-ps aws-report \
         $(patsubst k6/scripts/%.js,%,$(filter-out $(EXPLICIT),$(SCRIPTS)))
 
 help: ## targets and knobs
@@ -56,8 +56,17 @@ clean: ## remove k6- data (API pass, then SQL)
 prom-check: ## does Prometheus hold samples for TESTID
 	@curl -sG "$${PROM_QUERY:-http://localhost:9090}/api/v1/query" --data-urlencode "query=sum(k6_http_reqs_total{testid=\"$(TESTID)\"})" | python3 -m json.tool
 
-stack-up: ## start the load stack: the platform's built images + infra + monitoring, wait for every /actuator/health
+stack-up: ## start the load stack at LOAD_FLAVOUR's AWS sizes (default dev): built images + infra + monitoring, wait for /actuator/health
 	stack/stack.sh up
+
+stack-sizes: ## the CPU and memory every container gets under LOAD_FLAVOUR / LOAD_CPU_FACTOR / LOAD_MEM, without starting
+	stack/stack.sh sizes
+
+stack-limits: ## what docker applied to each running container of the load stack (CPU cap, memory limit, shape)
+	stack/stack.sh limits
+
+sizes-sync: ## copy the Fargate sizes from ../cvhome-platform into stack/fargate-sizes.json (npm test checks the copy)
+	node scripts/sync-fargate-sizes.mjs
 
 stack-down: ## stop the load stack, keep its volumes (database, media)
 	stack/stack.sh down
@@ -90,20 +99,38 @@ aws-down: ## stop the monitoring-only stack
 aws-ps: ## what the monitoring-only stack is running
 	$(AWS_COMPOSE) ps
 
+aws-report: ## a deployed run next to what ECS did: CPU/memory per service, tasks, scaling, stopped tasks (read-only; TESTID)
+	@testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
+	 [ -n "$$testid" ] || { echo "no TESTID and no results/*.json"; exit 2; }; \
+	 TARGET=$(if $(filter local,$(TARGET)),aws,$(TARGET)) node scripts/aws-report.mjs "$$testid"
+
 monitoring-check: ## dashboards match their spec and docs; Prometheus rules, config and the collector config are valid; the compose file parses
 	node stack/monitoring/scripts/build-dashboards.mjs --check
 	node stack/monitoring/scripts/dashboard-docs.mjs --check
-	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 check rules /r/cvhome-recording.yml /r/cvhome-alerts.yml
-	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/cvhome.test.yml
+	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 check rules /r/cvhome-recording.yml /r/cvhome-alerts.yml /r/load-recording.yml
+	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus-rules:/r:ro" --entrypoint promtool prom/prometheus:v3.11.2 test rules /r/tests/cvhome.test.yml /r/tests/load.test.yml
 	docker run --rm -v "$(CURDIR)/stack/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" --entrypoint promtool prom/prometheus:v3.11.2 check config --syntax-only /etc/prometheus/prometheus.yml
 	docker run --rm -v "$(CURDIR)/stack/monitoring/otel-collector.yml:/etc/otel-collector.yml:ro" otel/opentelemetry-collector-contrib:0.150.1 validate --config=/etc/otel-collector.yml
 	docker compose -f stack/docker-compose.yml config -q
 	docker compose -f stack/docker-compose.aws.yml config -q
 
+# the newest run's testid: results/<testid>.json, not the verdict's or the page budget's side files
+NEWEST = ls -t results/*.json 2>/dev/null | grep -v -e '\.verdict\.json$$' -e '/page-budget-' | head -1 | xargs -n1 basename 2>/dev/null | sed 's/\.json$$//'
+
 dash: ## open the "Load test vs app" Grafana dashboard for TESTID (or the newest run)
 	@url="$${GRAFANA_URL:-$$(python3 -c "import json; print(json.load(open('k6/config/env/$(TARGET).json')).get('grafanaUrl','http://localhost:3000'))")}"; \
-	 testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$(ls -t results/*.json 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null | sed 's/\.json$$//')"; \
+	 testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
 	 link="$$url/d/cvhome-load-test-vs-app?var-testid=$$testid&from=now-3h&to=now"; echo "$$link"; (command -v open >/dev/null && open "$$link") || true
+
+verdict: ## what a run used of every load-stack container, against k6/config/budgets.js (TESTID, or the newest run)
+	@testid="$(TESTID)"; [ -n "$$testid" ] || testid="$$($(NEWEST))"; \
+	 [ -n "$$testid" ] || { echo "no TESTID and no results/*.json"; exit 2; }; node scripts/verdict.mjs "$$testid"
+
+page-budget: ## what a storefront page ships per theme and key page, against PAGE in k6/config/budgets.js (TARGET)
+	node scripts/page-budget.mjs
+
+perf-suite: ## stack-up → smoke → load → spike → page breakpoint → sign-in burst → soak → page budget, one table (TARGET=aws: no stack, aws-report per run)
+	node scripts/perf-suite.mjs
 
 # one target per script: k6/scripts/<layer>/<name>.js -> make <layer>-<name>
 define SCRIPT_RULE

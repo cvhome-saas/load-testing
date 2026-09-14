@@ -7,11 +7,16 @@
  *   scenario('vus',  'browse', { peak: 20 })         closed model: real users with think time
  *   scenario('rate', 'orders', { rate: 30, unit: '1m' })  open model: offered load independent of latency
  *   scenario('once', 'smoke')                        one VU, one iteration
+ *   recoveryProbe('probe')                           PROFILE=spike: a steady probe through and after the spike
  */
 import { env } from '../lib/core/env.js';
 import { config } from '../lib/core/env.js';
 import { globalTags } from '../lib/core/tags.js';
 import { sloFor } from './thresholds.js';
+
+// The spike shape, both models: 30 s at base, 10 s up to 10×, 1 m at 10×, 10 s down, SPIKE.after at base. The spike has
+// ended at 1m50s; the recovery probe measures from 20 s later to the end.
+const SPIKE = { after: '2m', ends: '1m50s', recoveryFrom: '2m10s', recoveryFor: '1m40s', probeEvery: '3s' };
 
 function closed(exec, peak, profile) {
   switch (profile) {
@@ -25,9 +30,9 @@ function closed(exec, peak, profile) {
         stages: [{ duration: '2m', target: peak }, { duration: '3m', target: peak * 2 }, { duration: '10m', target: peak * 2 }, { duration: '1m', target: 0 }] };
     case 'spike':
       return { executor: 'ramping-vus', startVUs: Math.max(1, Math.ceil(peak / 4)), exec, gracefulRampDown: '15s',
-        stages: [{ duration: '30s', target: Math.ceil(peak / 4) }, { duration: '10s', target: peak * 10 }, { duration: '1m', target: peak * 10 }, { duration: '10s', target: Math.ceil(peak / 4) }, { duration: '1m', target: Math.ceil(peak / 4) }] };
+        stages: [{ duration: '30s', target: Math.ceil(peak / 4) }, { duration: '10s', target: peak * 10 }, { duration: '1m', target: peak * 10 }, { duration: '10s', target: Math.ceil(peak / 4) }, { duration: SPIKE.after, target: Math.ceil(peak / 4) }] };
     case 'soak':
-      return { executor: 'constant-vus', vus: peak, duration: env.DURATION, exec };
+      return { executor: 'constant-vus', vus: peak, duration: env.SOAK_DURATION, exec };
     case 'breakpoint':
       // closed models hide the knee (VUs slow down with the system); express breakpoints as a rate instead
       return open(exec, Math.max(1, Math.ceil(peak / 2)), '1s', 'breakpoint');
@@ -36,7 +41,7 @@ function closed(exec, peak, profile) {
   }
 }
 
-function open(exec, rate, unit, profile) {
+function open(exec, rate, unit, profile, maxRps) {
   const perSecond = unit === '1s' ? rate : rate / 60;
   const pre = Math.max(5, Math.ceil(perSecond * 5));
   switch (profile) {
@@ -48,24 +53,40 @@ function open(exec, rate, unit, profile) {
       return { executor: 'constant-arrival-rate', rate: rate * 3, timeUnit: unit, duration: env.DURATION, preAllocatedVUs: pre * 3, maxVUs: pre * 15, exec };
     case 'spike':
       return { executor: 'ramping-arrival-rate', startRate: rate, timeUnit: unit, preAllocatedVUs: pre * 4, maxVUs: pre * 30, exec,
-        stages: [{ duration: '30s', target: rate }, { duration: '10s', target: rate * 10 }, { duration: '1m', target: rate * 10 }, { duration: '10s', target: rate }, { duration: '1m', target: rate }] };
+        stages: [{ duration: '30s', target: rate }, { duration: '10s', target: rate * 10 }, { duration: '1m', target: rate * 10 }, { duration: '10s', target: rate }, { duration: SPIKE.after, target: rate }] };
     case 'soak':
-      return { executor: 'constant-arrival-rate', rate, timeUnit: unit, duration: env.DURATION, preAllocatedVUs: pre, maxVUs: pre * 6, exec };
+      return { executor: 'constant-arrival-rate', rate, timeUnit: unit, duration: env.SOAK_DURATION, preAllocatedVUs: pre, maxVUs: pre * 6, exec };
     case 'breakpoint':
-      return { executor: 'ramping-arrival-rate', startRate: 1, timeUnit: '1s', preAllocatedVUs: 50, maxVUs: Math.max(200, env.MAX_RPS * 2), exec,
-        stages: [{ duration: env.RAMP, target: env.MAX_RPS }, { duration: '1m', target: env.MAX_RPS }] };
+      return { executor: 'ramping-arrival-rate', startRate: 1, timeUnit: '1s', preAllocatedVUs: 50, maxVUs: Math.max(200, maxRps * 2), exec,
+        stages: [{ duration: env.RAMP, target: maxRps }, { duration: '1m', target: maxRps }] };
     default:
       throw new Error(`unknown PROFILE ${profile}`);
   }
 }
 
+/** knobs: peak (vus), rate + unit (rate), maxRps (rate, breakpoint), profile (a script whose shape is fixed). */
 export function scenario(kind, exec, knobs) {
   const k = knobs || {};
-  const profile = env.PROFILE;
+  const profile = k.profile || env.PROFILE;
   if (kind === 'once') return { executor: 'per-vu-iterations', vus: k.vus || 1, iterations: k.iterations || 1, maxDuration: k.maxDuration || '10m', exec };
   if (kind === 'vus') return closed(exec, k.peak || env.PEAK_VUS, profile);
-  if (kind === 'rate') return open(exec, k.rate || env.RATE, k.unit || env.RATE_UNIT, profile);
+  if (kind === 'rate') return open(exec, k.rate || env.RATE, k.unit || env.RATE_UNIT, profile, k.maxRps || env.MAX_RPS);
   throw new Error(`unknown scenario kind ${kind}`);
+}
+
+/**
+ * PROFILE=spike only: a steady probe, one `exec` every few seconds, beside the spike. `probe` runs from before the
+ * spike until it has ended; `recovery` starts 20 s after that and runs to the end, and recoveryThresholds() in
+ * thresholds.js holds its latency to the plain SLO — a spike the system never recovers from fails there. Any other
+ * profile gets no probe, so a script can always spread the result into its scenarios.
+ */
+export function recoveryProbe(exec) {
+  if (env.PROFILE !== 'spike') return {};
+  const steady = { executor: 'constant-arrival-rate', rate: 1, timeUnit: SPIKE.probeEvery, preAllocatedVUs: 2, maxVUs: 10, exec };
+  return {
+    probe: Object.assign({}, steady, { startTime: '0s', duration: SPIKE.ends }),
+    recovery: Object.assign({}, steady, { startTime: SPIKE.recoveryFrom, duration: SPIKE.recoveryFor }),
+  };
 }
 
 /** A browser scenario: few Chromium VUs, iteration count from the profile. */
@@ -82,6 +103,7 @@ export function browserScenario(exec, knobs) {
  * build({ layer, script, scenarios, thresholds, needs, options })
  *   layer      tags + SLO table
  *   script     testid prefix (defaults to the layer)
+ *   profile    the SLO table's profile when the script fixes its own shape (default PROFILE)
  *   scenarios  from scenario()/browserScenario()
  *   thresholds extra lines merged over sloFor(layer)
  *   needs      fixtures this script provisions in setup(): ['store','catalog','sessions','shoppers']
@@ -89,7 +111,7 @@ export function browserScenario(exec, knobs) {
 export function build(spec) {
   const opts = Object.assign({
     scenarios: spec.scenarios,
-    thresholds: Object.assign({}, sloFor(spec.layer, env.PROFILE), spec.thresholds || {}),
+    thresholds: Object.assign({}, sloFor(spec.layer, spec.profile || env.PROFILE), spec.thresholds || {}),
     tags: globalTags(spec.layer, spec.script),
     hosts: config.hosts,
     setupTimeout: '10m',

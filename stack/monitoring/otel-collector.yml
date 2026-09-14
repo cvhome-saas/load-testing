@@ -99,7 +99,9 @@ processors:
           - set(name, Concat([attributes["db.operation"], attributes["db.sql.table"]], " ")) where attributes["db.operation"] != nil and attributes["db.sql.table"] != nil and attributes["db.name"] != nil and name == Concat([attributes["db.operation"], attributes["db.name"]], " ")
 
   # Meter families nobody reads. Kept on purpose (not listed): http.*, jvm.*, system.*, process.*, jdbc.*,
-  # hikaricp.*, tomcat.* (request-thread saturation), executor.* (async/scheduler pools), cache.*, cvhome.*.
+  # hikaricp.*, tomcat.* (request-thread saturation), executor.* (async/scheduler pools), cache.*, cvhome.*, and of
+  # landing-ui's Node runtime the event-loop delay p99 and utilisation and the V8 heap used and limit (Load test vs
+  # app → What ran out: a render queue shows as event-loop delay before it shows as latency).
   filter/drop_metrics:
     error_mode: ignore
     metrics:
@@ -107,10 +109,10 @@ processors:
         - IsMatch(name, "^spring.*")
         - IsMatch(name, "^processedLogs.*")
         - IsMatch(name, "^disk.*")
-        - IsMatch(name, "^nodejs.*")
+        - IsMatch(name, "^nodejs.*") and not IsMatch(name, "^nodejs[.]eventloop[.](delay[.]p99|utilization)")
         - IsMatch(name, "^logback.*")
         - IsMatch(name, "^tasks.*")
-        - IsMatch(name, "^v8js.*")
+        - IsMatch(name, "^v8js.*") and not IsMatch(name, "^v8js[.]memory[.]heap[.](used|limit)")
 
   memory_limiter:
     check_interval: 5s

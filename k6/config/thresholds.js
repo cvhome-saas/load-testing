@@ -8,12 +8,18 @@ const MULTIPLIER = { smoke: 1, load: 1, soak: 1, stress: 2, spike: 3, breakpoint
 
 function p95(ms, m) { return [`p(95)<${ms * m}`]; }
 
+// The page SLO: what a server-rendered page view may take (loosened by MULTIPLIER, except in pageKnee and recovery).
+const PAGE_P95_MS = 3000;
+const PAGES = ['home', 'category', 'product', 'search'];
+// A seller sign-in end to end (the three hops after the start).
+const SELLER_LOGIN_P95_MS = 2500;
+
 const LAYERS = {
   storefront: (m) => ({
     'http_req_failed{layer:storefront}': ['rate<0.01'],
-    'http_req_duration{name:page:home}': p95(3000, m),
-    'http_req_duration{name:page:category}': p95(3000, m),
-    'http_req_duration{name:page:product}': p95(3000, m),
+    'http_req_duration{name:page:home}': p95(PAGE_P95_MS, m),
+    'http_req_duration{name:page:category}': p95(PAGE_P95_MS, m),
+    'http_req_duration{name:page:product}': p95(PAGE_P95_MS, m),
     'http_req_duration{name:catalog:product}': p95(500, m),
     'http_req_duration{name:catalog:search}': p95(800, m),
     'http_req_duration{name:catalog:products-by-category}': p95(600, m),
@@ -42,7 +48,7 @@ const LAYERS = {
   }),
   platform: (m) => ({
     'http_req_failed{layer:platform}': ['rate<0.02'],
-    seller_login_ms: p95(2500, m),
+    seller_login_ms: p95(SELLER_LOGIN_P95_MS, m),
     'http_req_duration{name:spg:domain-lookup}': p95(800, m),
   }),
   browser: () => ({
@@ -56,6 +62,39 @@ const LAYERS = {
 };
 
 const OPEN_MODEL = { dropped_iterations: ['count<10'] };
+
+
+/**
+ * storefront/page-breakpoint.js: the knee is the rate at which a page stops meeting its SLO, so the page lines hold at
+ * the plain SLO (not breakpoint's 3×) and abort the run once breached. A smoke only proves the pages answer.
+ */
+export function pageKnee(profile) {
+  const out = { 'http_req_failed{layer:storefront}': ['rate<0.01'] };
+  if (profile === 'smoke') return out;
+  PAGES.forEach((p) => { out[`http_req_duration{name:page:${p}}`] = p95(PAGE_P95_MS, 1); });
+  Object.keys(out).forEach((k) => { out[k] = out[k].map((t) => ({ threshold: t, abortOnFail: true, delayAbortEval: '30s' })); });
+  return out;
+}
+
+/**
+ * platform/sign-in-burst.js: each hop of a seller sign-in on its own, so the summary carries the three. No hop may take
+ * the whole sign-in's SLO (seller_login_ms, the platform layer).
+ */
+export function signInHops(profile) {
+  const m = MULTIPLIER[profile] || 1;
+  const out = {};
+  ['submit', 'authorize', 'callback'].forEach((hop) => { out[`http_req_duration{name:seller:login-${hop}}`] = p95(SELLER_LOGIN_P95_MS, m); });
+  return out;
+}
+
+/** PROFILE=spike: the recovery probe (profiles.js recoveryProbe) must be back inside the page SLO once the spike ends. */
+export function recoveryThresholds(profile) {
+  if (profile !== 'spike') return {};
+  return {
+    'http_req_duration{scenario:recovery}': p95(PAGE_P95_MS, 1),
+    'http_req_failed{scenario:recovery}': ['rate<0.01'],
+  };
+}
 
 export function sloFor(layer, profile) {
   const m = MULTIPLIER[profile] || 1;

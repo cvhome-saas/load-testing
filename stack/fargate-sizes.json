@@ -1,0 +1,370 @@
+{
+  "_generated": "by scripts/sync-fargate-sizes.mjs from cvhome-platform flavours.yaml + services.yaml; do not edit",
+  "_units": "cpu in Fargate CPU units (1024 = 1 vCPU), memory in MiB; postgres is the flavour's RDS instance class",
+  "flavours": {
+    "dev": {
+      "desiredCount": 1,
+      "dbPoolSize": 3,
+      "services": {
+        "billing": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "catalog": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "checkout": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "console-ui": {
+          "size": "ui",
+          "cpu": 256,
+          "memory": 512
+        },
+        "content": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "cua": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "inventory": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "landing-ui": {
+          "size": "ssr",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "merchant": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "otel-collector": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "payment": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "pod-registry": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "spg": {
+          "size": "gateway",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "store-core-gateway": {
+          "size": "gateway",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "tenancy": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "uaa": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "postgres": {
+          "size": "db.t4g.micro",
+          "cpu": 2048,
+          "memory": 1024
+        }
+      }
+    },
+    "staging": {
+      "desiredCount": 1,
+      "dbPoolSize": 6,
+      "services": {
+        "billing": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "catalog": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "checkout": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "console-ui": {
+          "size": "ui",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "content": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "cua": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "inventory": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "landing-ui": {
+          "size": "ssr",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "merchant": {
+          "size": "medium",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "otel-collector": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "payment": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "pod-registry": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "spg": {
+          "size": "gateway",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "store-core-gateway": {
+          "size": "gateway",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "tenancy": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "uaa": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "postgres": {
+          "size": "db.t4g.small",
+          "cpu": 2048,
+          "memory": 2048
+        }
+      }
+    },
+    "prod": {
+      "desiredCount": 2,
+      "dbPoolSize": 6,
+      "services": {
+        "billing": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "catalog": {
+          "size": "medium",
+          "cpu": 1024,
+          "memory": 2048
+        },
+        "checkout": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "console-ui": {
+          "size": "ui",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "content": {
+          "size": "medium",
+          "cpu": 1024,
+          "memory": 2048
+        },
+        "cua": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "inventory": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "landing-ui": {
+          "size": "ssr",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "merchant": {
+          "size": "medium",
+          "cpu": 1024,
+          "memory": 2048
+        },
+        "otel-collector": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "payment": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "pod-registry": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "spg": {
+          "size": "gateway",
+          "cpu": 1024,
+          "memory": 2048
+        },
+        "store-core-gateway": {
+          "size": "gateway",
+          "cpu": 1024,
+          "memory": 2048
+        },
+        "tenancy": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "uaa": {
+          "size": "small",
+          "cpu": 512,
+          "memory": 1024
+        },
+        "postgres": {
+          "size": "db.t4g.small",
+          "cpu": 2048,
+          "memory": 2048
+        }
+      }
+    },
+    "ephemeral": {
+      "desiredCount": 1,
+      "dbPoolSize": 3,
+      "services": {
+        "billing": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "catalog": {
+          "size": "medium",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "checkout": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "console-ui": {
+          "size": "ui",
+          "cpu": 256,
+          "memory": 512
+        },
+        "content": {
+          "size": "medium",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "cua": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "inventory": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "landing-ui": {
+          "size": "ssr",
+          "cpu": 256,
+          "memory": 512
+        },
+        "merchant": {
+          "size": "medium",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "otel-collector": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "payment": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "pod-registry": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "spg": {
+          "size": "gateway",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "store-core-gateway": {
+          "size": "gateway",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "tenancy": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "uaa": {
+          "size": "small",
+          "cpu": 256,
+          "memory": 1024
+        },
+        "postgres": {
+          "size": "db.t4g.micro",
+          "cpu": 2048,
+          "memory": 1024
+        }
+      }
+    }
+  }
+}

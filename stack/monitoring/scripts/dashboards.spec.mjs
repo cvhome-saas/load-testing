@@ -407,6 +407,7 @@ const traces = dashboard('cvhome-traces', 'Traces', 'observability',
 
 // ───────────────────────────────────────────────────────── load testing ──
 const k6 = 'testid="$testid"';
+const LOAD = 'project="cvhome-load"';
 const loadTest = dashboard('cvhome-load-test-vs-app', 'Load test vs app', 'load-testing',
   'One k6 run (pick the testid) next to what the application did during it, on the same time axis: where the load went, where latency broke, which resource ran out first.',
   [
@@ -442,6 +443,21 @@ const loadTest = dashboard('cvhome-load-test-vs-app', 'Load test vs app', 'load-
     timeseries('Statements per request and SQL p99', 'Query cost per request, and the slow tail of SQL, during the run.',
       [['cvhome:sql_per_request:ratio5m', '{{service_name}} sql/req'], ['cvhome:sql:p99_5m', '{{service_name}} sql p99']], {unit: 'short', overrides: [{matcher: {id: 'byRegexp', options: '.* sql p99'}, properties: [{id: 'unit', value: 's'}, {id: 'custom.axisPlacement', value: 'right'}]}]}),
     timeseries('Heap after GC', 'Live heap share during a soak: a rising floor is a leak.', [['cvhome:jvm_heap_after_gc:ratio', '{{service_name}}']], {unit: 'percentunit', thresholds: [0.7, 0.85]}),
+    timeseries('Container CPU against its cap', 'Each container\'s CPU as a share of its cap: its Fargate size × LOAD_CPU_FACTOR (load stack, cAdvisor). At 1 it gets everything its task would and queues the rest; the first line to stay above 0.9 is this run\'s bottleneck at AWS sizes.',
+      [[`load:container_cpu:ratio{${LOAD}}`, '{{service}}']], {unit: 'percentunit', thresholds: [0.8, 0.9], max: 1.1}),
+    timeseries('CPU throttling', 'Share of CPU periods in which a container wanted more than its quota. Throttled most of the time means the cap, not the code path, sets its latency.',
+      [[`load:container_throttled:ratio{${LOAD}}`, '{{service}}']], {unit: 'percentunit', thresholds: [0.25, 0.5], max: 1}),
+    timeseries('Memory against the limit', 'Working set as a share of each container\'s memory limit (its task\'s memory). At 1 the kernel kills it, as Fargate stops the task.',
+      [[`load:container_memory:ratio{${LOAD}}`, '{{service}}']], {unit: 'percentunit', thresholds: [0.7, 0.85], max: 1}),
+    timeseries('landing-ui event loop and heap', 'Node\'s event-loop delay p99 (renders queueing show here before they show as latency) and the V8 heap used against its limit. Exported once a minute.',
+      [['max(nodejs_eventloop_delay_p99_seconds{service_name="landing-ui"})', 'event-loop delay p99'], ['sum(v8js_memory_heap_used_bytes{service_name="landing-ui"}) / sum(v8js_memory_heap_limit_bytes{service_name="landing-ui"})', 'heap used / limit']],
+      {unit: 's', thresholds: [0.1, 0.5], overrides: [{matcher: {id: 'byName', options: 'heap used / limit'}, properties: [{id: 'unit', value: 'percentunit'}, {id: 'custom.axisPlacement', value: 'right'}]}]}),
+    table('Containers in this run', 'Per container over the selected range: peak CPU against the cap, peak memory against the limit, OOM kills and restarts. make verdict prints the same, with the budgets from k6/config/budgets.js.',
+      [[`max_over_time(load:container_cpu:ratio{${LOAD}}[$__range])`, 'peak cpu / cap'], [`max_over_time(load:container_memory:ratio{${LOAD}}[$__range])`, 'peak memory / limit'],
+        [`increase(load:container_oom_events:total{${LOAD}}[$__range])`, 'oom kills'], [`changes(load:container_start_time:seconds{${LOAD}}[$__range])`, 'restarts']],
+      {sortBy: 'peak cpu / cap', h: 10, overrides: ['peak cpu / cap', 'peak memory / limit'].map((c) => ({matcher: {id: 'byName', options: c}, properties: [{id: 'unit', value: 'percentunit'}, {id: 'custom.cellOptions', value: {type: 'color-background'}},
+        {id: 'thresholds', value: {mode: 'absolute', steps: [{color: 'green', value: null}, {color: 'orange', value: c === 'peak cpu / cap' ? 0.8 : 0.7}, {color: 'red', value: c === 'peak cpu / cap' ? 0.9 : 0.85}]}}]}))
+        .concat(['oom kills', 'restarts'].map((c) => ({matcher: {id: 'byName', options: c}, properties: [{id: 'decimals', value: 0}, {id: 'custom.cellOptions', value: {type: 'color-background'}}, {id: 'thresholds', value: {mode: 'absolute', steps: [{color: 'green', value: null}, {color: 'red', value: 1}]}}]})))}),
     logs('Application errors during the run', 'Error lines from the selected services while the run was going.', '{service_name=~"$service"} | detected_level="error"', {h: 10}),
   ],
   {variables: [variable('testid', 'Test run', 'label_values(k6_http_reqs_total, testid)', {all: false, multi: false, sort: 2}),
