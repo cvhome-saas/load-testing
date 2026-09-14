@@ -56,7 +56,9 @@ close_annotation() {
 }
 trap close_annotation EXIT
 export K6_BROWSER_HEADLESS="${K6_BROWSER_HEADLESS:-true}"
-export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1}"
+# HttpsUpgrades off: Chromium otherwise tries every http:// navigation as https:// first, and against spg's :443 the
+# attempt hangs 3 s before it falls back, which put 3 s into every local TTFB and LCP. AWS serves https, which never pays it.
+export K6_BROWSER_ARGS="${K6_BROWSER_ARGS:-host-resolver-rules=MAP *.spg-507f1f77.gateway.com 127.0.0.1,disable-features=HttpsUpgrades}"
 
 mkdir -p results
 echo "k6run  script=$script  layer=$layer  profile=$PROFILE  target=$TARGET  run_id=$RUN_ID  testid=$TESTID ${out[*]+${out[*]}}"

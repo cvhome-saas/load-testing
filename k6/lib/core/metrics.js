@@ -21,6 +21,8 @@ export const storesCreated = new Counter('stores_created');
 export const productsCreated = new Counter('products_created');
 export const domainLookups = new Counter('domain_lookups');
 export const browserErrors = new Counter('browser_errors');
+// Documents a browser opened: each is one landing-ui render, which the verdict counts next to the HTTP page views.
+export const browserPageViews = new Counter('browser_page_views');
 export const planLimitHits = new Counter('plan_limit_hits');
 
 /** Time and grade one journey. `ok` is the AND of every step. */

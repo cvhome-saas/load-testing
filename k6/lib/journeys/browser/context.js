@@ -6,6 +6,7 @@
  * aborting the run, so one flaky iteration cannot end a long hybrid test.
  */
 import { browser } from 'k6/browser';
+import execution from 'k6/execution';
 import { expect } from 'https://jslib.k6.io/k6-testing/0.6.1/index.js';
 import { env } from '../../core/env.js';
 import { browserErrors, recordJourney } from '../../core/metrics.js';
@@ -16,8 +17,14 @@ import { browserErrors, recordJourney } from '../../core/metrics.js';
 // page on its first hit. expect.configure() returns a new instance; it does not change the imported one.
 export const assert = expect.configure({ softMode: 'throw', timeout: 20000 });
 
+// Every metric of the page carries the journey's name, set on the VU for the life of the page. The browser module tags
+// its requests by resource_type (Document, Script, Stylesheet, Font, Fetch, ...) and by nothing URL-shaped, since
+// bin/k6run drops `url`, so {journey, resource_type} is how a browser run reads:
+// browser_http_req_duration{journey:visit-home,resource_type:Fetch} is the home page's API calls from the browser,
+// and browser_web_vital_lcp{journey:visit-product} is the LCP of product pages.
 export async function withPage(name, fn) {
   const t0 = Date.now();
+  execution.vu.metrics.tags.journey = name;
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1366, height: 900 } });
   const page = await context.newPage();
   let ok = false;
@@ -37,6 +44,8 @@ export async function withPage(name, fn) {
   } finally {
     await page.close();
     await context.close();
+    // after close: the Web Vitals a page reports as it closes still carry the journey
+    delete execution.vu.metrics.tags.journey;
   }
   recordJourney(name, t0, ok);
   return ok;

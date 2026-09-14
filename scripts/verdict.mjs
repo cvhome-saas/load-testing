@@ -21,8 +21,10 @@ const profile = process.env.PROFILE || /-(smoke|load|stress|spike|soak|breakpoin
 const {CONTAINER: C, CPU_PER_UNIT} = await budgets();
 const P = 'project="cvhome-load"';
 const STEP = 15;
+// landing-ui renders a page for every HTTP page view and for every document a browser opens (browser_page_views).
 const UNITS = {
-  'page view': (range_) => `sum(max_over_time(k6_http_reqs_total{testid="${testid}",name=~"page:.*"}[${range_}]))`,
+  'page view': (range_) => `(sum(max_over_time(k6_http_reqs_total{testid="${testid}",name=~"page:.*"}[${range_}])) or vector(0))` +
+    ` + (sum(max_over_time(k6_browser_page_views_total{testid="${testid}"}[${range_}])) or vector(0))`,
   'sign-in': (range_) => `sum(max_over_time(k6_seller_logins_total{testid="${testid}"}[${range_}]))`,
 };
 const out = {testid, profile, status: 'skipped', failures: [], containers: [], units: []};
