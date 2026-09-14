@@ -480,3 +480,33 @@ browser-traffic 5× (idle 0.7 % too, but 0.34 % failed) says the stack itself ha
 median; the recovery job and the outbox share its 3 connections); uaa at 1.6 s of CPU a sign-in, unchanged code; the
 stale share of the page cache under CPU pressure (43 % of the 3× spike's views were served stale while their refresh
 rendered, 9 % in browser traffic).
+
+### The production mix alone, before and after the cart-line phases (2026-09-15)
+
+One run of `mixed-production-mix` at `PROFILE=spike RATE=60`, no warm-up, Prometheus and Grafana emptied before each,
+on the branch's images: first at e1ef55ce0, then with catalog and checkout rebuilt with two more phases (a cart-line
+read from a per-sku cache in catalog, `GET /api/v1/cart-lines`; a cart line in checkout that remembers its product,
+so a read asks the catalogue nothing). Runs `one-rate60-production-mix-spike-20260914T212448Z` and `three-rate60-production-mix-spike-20260914T225056Z`.
+
+| measure | before | after |
+| --- | --- | --- |
+| requests answered / failed | 30,307 / 6.5 % | 31,060 / 2.8 % |
+| failed: storefront / admin | 7.1 % / 3.0 % | 2.9 % / 2.6 % |
+| journeys never started | 214 | 102 |
+| catalog: peak / at cap / pool waits timed out / 5xx | 98 % / 30 s / 1,850 / 1,826 | 74 % / 0 s / 0 / 0 |
+| catalog: `detailed-products` / `cart-lines` calls | 2,181 / — | 0 / 1,054 |
+| checkout: peak / at cap / pool waits timed out / 5xx | 93 % / 30 s / 46 / 870 | 94 % / 60 s / 241 / 955 |
+| checkout: CPU per request (Fargate) | — | 15 ms |
+| purchases failed / orders placed | 74 % / 76 | 78 % / 59 |
+| recovery p95 after the spike | 14 ms | 74 ms |
+
+- **The root cause of the first run's errors is gone.** Its 870 checkout errors were 791 timeouts waiting on
+  catalog's `detailed-products`, which every cart read made and which sat behind catalog's saturated pool. Catalog
+  now answers a cart line from a per-sku cache and is never at its cap; the cart reads never reach it.
+- **Checkout is the wall that was behind it.** With nothing failing ahead of it, more carts reach a checkout that
+  has 15 ms of Fargate CPU to spend per request on a quarter vCPU: 60 s at its cap, 955 × 5xx, a cart read of 3
+  statements and 1 ms of SQL answering in 2.9 s. Purchases failed _more_ by count for that reason. Fixes, in order:
+  the medium size for checkout (cvhome-platform), then its CPU: a cart read still calls inventory over HTTP for the
+  live price, placement is 15 statements, and the outbox poller shares its 3 connections.
+- A run made while cvhome's verification pipeline ran on the same Mac (idle 7.6 %) read very differently
+  (`two-rate60-…`) and was discarded: keep the host idle for a number to count.
