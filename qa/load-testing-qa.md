@@ -8,7 +8,7 @@ land, and removing what the suite created.
   fixtures, results and metrics output. Not the SLO numbers themselves (those are tuned per target).
 - **Runs on** — `brew install k6` (2.2.0), `npm ci`; for anything that sends traffic,
   `make stack-up` (the platform's prebuilt images plus Prometheus, Grafana, collector, Tempo; telemetry on by default).
-- **Cases** — 27 (18 verified, 9 not verified; 06.10 is verified for its no-credentials path only)
+- **Cases** — 31 (22 verified, 9 not verified; 06.10 for its no-credentials path only, 07.3 for its mechanics only)
 - **Also see** — `../cvhome` `qa/` for the application behaviour the journeys drive; `docs/prometheus.md` for
   reading a run; `docs/coverage.md` for which endpoint each client method hits.
 
@@ -264,3 +264,58 @@ found; skip SQL pass`, exit 0.
 - Steps: `make perf-suite` (about 35 minutes); `SUITE_STEPS=load,page-budget make perf-suite`
 - Expect: stack-up, then smoke, load, spike, page breakpoint, sign-in burst, soak and the page budget run in order, each with its own testid and verdict; the final table lists every check with its number, budget and pass/fail; exit 1 when any check failed
 - Seen: every step ran and the table came out, with 25 failed checks on this image set (docs/baseline.md). `SUITE_STEPS` was not run on its own
+
+## 07 — The storefront spike in a browser
+
+### 07.1 The storefront's static files come from MinIO, as from CloudFront [verified 2026-09-14: `LOAD_TAG=native`, landing-ui the amd64 `:native` image of 2026-09-13]
+
+- Setup: `make stack-down`, then `make stack-up`
+- Steps:
+  1. Read the line `landing-ui static files:` that `make stack-up` prints.
+  2. `curl -s http://org1-store2.spg-507f1f77.gateway.com/en | grep -o 'http://localhost:9000/storefront-assets/storefront/_next/static/[^"]*' | head -3`
+  3. `LOAD_CDN=false make stack-up`, then the same two steps.
+- Expect: `asset prefix set to http://localhost:9000/storefront-assets/storefront`, and a page's scripts point at MinIO
+  and answer 200 from it. With `LOAD_CDN=false`: `asset prefix set to ''` and origin-relative `/_next/static`.
+  `minio-init` exits 0 and landing-ui starts after it.
+- Seen:
+  - First boot: "Bucket created", "uploaded 173 files", and the prefix set. A home visit loaded its scripts from
+    `localhost:9000`; the old image inlines its CSS, so its two fonts still came from landing-ui.
+  - `LOAD_CDN=false`: prefix `''`, and 906 origin-relative `/_next/static` references.
+  - Back to the CDN: "already synced — skipping upload".
+  - In origin mode the page still sends a preconnect hint to the MinIO URL. landing-ui's layout reads
+    `STATIC_ASSETS_BASE_URL` whether or not the files were synced. It is harmless: a preconnect nothing uses.
+
+### 07.2 A browser's metrics carry its journey and no 3-second HTTPS attempt [verified 2026-09-14: `storefront-spike-smoke-20260914T064318Z`]
+
+- Steps: `PROFILE=smoke STORES=org1-store2 make browser-storefront-spike`, then in Prometheus
+  `max by (journey, resource_type, status) (k6_browser_http_req_duration_max{testid="<testid>"})`
+- Expect: every series has `journey="visit-<page>"` and a `resource_type`, no `url` or per-URL `name`, and no Document
+  with status 307. `browser_page_views` is 1, and `browser_web_vital_ttfb` is the render, not 3 s more.
+- Seen: every series was `journey="visit-product"` with a `resource_type`; the Document answered 200 with no 307.
+  With the HTTPS-Upgrades feature still on, the same home page had a TTFB of 3.86 s; with it off, 0.96 s.
+
+### 07.3 `browser-storefront-spike` measures three windows of the spike [verified 2026-09-14 for the mechanics only: `PEAK_VUS=2` on the old images, `mech-storefront-spike-spike-20260914T064445Z`; not at `PEAK_VUS=10` on images of cvhome main]
+
+- Steps: `make browser-storefront-spike PROFILE=spike STORES=org1-store2 PEAK_VUS=10`
+  (`k6 inspect -e PROFILE=spike …` shows the shape without traffic)
+- Expect:
+  - Scenarios: `shoppers` (ramping-vus, 3 → 100 → 3 over 3m50s), `ui-base` (3 Chromium, 0–30 s), `ui-peak`
+    (9 Chromium, 40 s–1m40s), `ui-recovery` (3 Chromium, 2m10s–3m50s).
+  - The summary has, per window, `browser_web_vital_lcp` and `_ttfb` p75,
+    `browser_http_req_duration{…,resource_type:Fetch}` p95 and `journey_errors` rate, with the plain SLO before and
+    after the spike and 3× at its peak, next to the storefront layer's lines.
+  - The verdict's landing-ui CPU per page view counts the browser page views too.
+- Seen:
+  - The shape was exact, and every per-window line was in the summary.
+  - Failed visits: 13 % before the spike, 100 % at its peak (every navigation timed out at 30 s), 0 % after it.
+  - A window where no visit finished shows its trends as 0. Its failed-visit rate is the line that fails.
+  - The verdict counted 122 page views, 67 of them from browsers.
+  - None of these numbers describes the storefront: the emulated old landing-ui cost 827 ms of Fargate CPU per page.
+
+### 07.4 perf-suite runs the browser spike after the spike [verified 2026-09-14: `SUITE_STEPS=browser-spike SUITE_SPIKE_VUS=2`, `browser-spike-spike-20260914T065128Z`]
+
+- Steps: `SUITE_STEPS=browser-spike make perf-suite`
+- Expect: one browser run at `SUITE_SPIKE_VUS` (10), then its verdict rows, then a row per window with LCP p75,
+  TTFB p75, API p95 and failed visits beside the threshold expressions of the run.
+- Seen: the three rows. The peak row read `17.94 s, -, -, 100%`: its TTFB and API had no finished visit, so they
+  printed `-`, not 0.
