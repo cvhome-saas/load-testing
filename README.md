@@ -180,36 +180,36 @@ script that picks a journey and a profile.
 
 `make <layer>-<name>`; every one honours `PROFILE`, `TARGET`, `RUN_ID` and the knobs in `make knobs`.
 
-| layer      | script               | model                          | what it exercises                                                                                | writes       |
-| ---------- | -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------ |
-| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search; spike adds a recovery probe  | —            |
-| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                     | —            |
-| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                               | —            |
-| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                          | —            |
-| storefront | page-breakpoint      | ramping rate to PAGE_MAX_RPS   | full page views (home, category, product, search) until a page misses its SLO: landing-ui's knee | —            |
-| storefront | soak                 | constant VUs for SOAK_DURATION | the browse journey for 30 min+: leaks, pools, caches; the verdict reads the memory slope         | —            |
-| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                       | carts        |
-| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                               | orders       |
-| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                                 | orders       |
-| shopper    | registration         | open                           | cua registration bursts                                                                          | shoppers     |
-| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                                 | orders       |
-| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                    | —            |
-| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it    | —            |
-| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete           | orgs, stores |
-| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                   | products     |
-| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                             | pages        |
-| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                            | —            |
-| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                             | —            |
-| platform   | gateway-login        | open, ≤ limiter                | the sign-in, timed per hop; in-memory session growth                                             | sessions     |
-| platform   | sign-in-burst        | open, under the limiter        | sign-ins at dev's pace (9/min, SIGNIN_RATE): uaa's cost per sign-in, per hop                     | sessions     |
-| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                    | —            |
-| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                           | —            |
-| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                             | —            |
-| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                            | orders       |
-| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                                | shoppers     |
-| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                                 | —            |
-| browser    | storefront-spike     | spike, HTTP + 3–9 Chromium     | Web Vitals before, in and after storefront-browse's spike, per page; API calls from the browser  | —            |
-| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                       | yes          |
+| layer      | script               | model                          | what it exercises                                                                                    | writes       |
+| ---------- | -------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------ |
+| storefront | browse               | closed (PEAK_VUS)              | SSR home/category/product + the API reads behind them, some search; spike adds a recovery probe      | —            |
+| storefront | search               | open (RATE)                    | suggest, full-text with facets, sorted pages                                                         | —            |
+| storefront | content              | open                           | site, menus, banners, policies, faq, posts, layout                                                   | —            |
+| storefront | breakpoint           | ramping rate to MAX_RPS        | product + availability until an SLO breaks, then aborts                                              | —            |
+| storefront | page-breakpoint      | ramping rate to PAGE_MAX_RPS   | full page views (home, category, product, search) until a page misses its SLO: landing-ui's knee     | —            |
+| storefront | soak                 | constant VUs for SOAK_DURATION | the browse journey for 30 min+: leaks, pools, caches; the verdict reads the memory slope             | —            |
+| shopper    | cart                 | open                           | cart create / add / read / change / remove                                                           | carts        |
+| shopper    | guest-checkout       | open                           | cart → checkout page reads → COD or MANUAL_TRANSFER order → status                                   | orders       |
+| shopper    | account              | open, low                      | PKCE sign-in, purchase with the token, my orders                                                     | orders       |
+| shopper    | registration         | open                           | cua registration bursts                                                                              | shoppers     |
+| shopper    | inventory-contention | open, high                     | everyone buys the same sku: row locks on reserve                                                     | orders       |
+| admin      | store-reads          | closed                         | store list/detail/info, billing state, themes                                                        | —            |
+| admin      | store-settings       | closed                         | the store settings screen (`/store-management/domain`): its shell and the ten reads behind it        | —            |
+| admin      | store-lifecycle      | open, low                      | signup → sign-in → create → provisioned → update → suspend → resume → archive → delete               | orgs, stores |
+| admin      | catalog-management   | open                           | category, product, price/stock, inline toggle, listing, delete                                       | products     |
+| admin      | content-management   | open                           | pages, and the HOME layout's optimistic versioning under concurrency                                 | pages        |
+| admin      | orders-list          | closed                         | the orders screen, filters, one order, payment ledger                                                | —            |
+| admin      | platform-reads       | closed                         | pods, users, roles, plans, subscriptions, statistics                                                 | —            |
+| platform   | gateway-login        | open, ≤ limiter                | the sign-in, timed per hop; in-memory session growth                                                 | sessions     |
+| platform   | sign-in-burst        | open, under the limiter        | sign-ins at dev's pace (9/min, SIGNIN_RATE): uaa's cost per sign-in, per hop                         | sessions     |
+| platform   | spg-domain-lookup    | open                           | known and unknown storefront hosts through spg's domain cache                                        | —            |
+| platform   | uaa-public           | open                           | sign-in settings, idps, jwks, discovery, cua authorize                                               | —            |
+| platform   | rate-limit-probe     | fixed                          | pushes a public POST past its window: 429, never 5xx                                                 | —            |
+| browser    | shopper-checkout     | 3–5 Chromium + HTTP background | home → … → "Order placed", Web Vitals                                                                | orders       |
+| browser    | shopper-auth         | Chromium                       | register and sign in through cua's hand-off pages                                                    | shoppers     |
+| browser    | browse               | Chromium                       | home, search, category, product: LCP / CLS / INP                                                     | —            |
+| browser    | storefront-spike     | closed or open (SPIKE_MODEL)   | the spike as shoppers see it: LCP/TTFB per window; SHOPPER_TRAFFIC picks what its HTTP shoppers send | —            |
+| mixed      | production-mix       | seven scenarios at once        | a normal day, ratios in `k6/config/mix.js`                                                           | yes          |
 
 Profiles: `smoke` (1 iteration), `load` (holds `DURATION`, 5 min, so a deployed autoscaler has time to act),
 `stress` (2–3×), `spike` (10× for a minute, then two at base; storefront-browse and production-mix add a recovery
@@ -244,7 +244,8 @@ deliberately dropped. Every time-typed trend (k6's built-ins and the suite's `*_
 write; the `_ms` names describe the local summary, not the Prometheus unit. Custom metrics: `journey_duration_ms{journey}`, `journey_errors{journey}`,
 `unexpected_status{name,status}`, `rate_limited`, `orders_placed`, `stores_created`, `products_created`,
 `shoppers_registered`, `shopper_auth_ms`, `seller_login_ms`, `seller_session_lost`, `fixture_provision_ms`,
-`domain_lookups{known}`, `browser_errors`, `browser_page_views`. Queries and the application-side signals to correlate
+`domain_lookups{known}`, `browser_errors`, `browser_page_views`, `storefront_page_cache{name,state}` (what landing-ui's page
+cache did with each page view: hit, miss, stale, stale-refresh, shared, bypass; `none` from a build without it). Queries and the application-side signals to correlate
 with are in `docs/prometheus.md`.
 
 A browser's metrics carry no URL either. Every metric of a page carries its `journey` (`visit-home`, `browser-browse`,
@@ -263,10 +264,11 @@ alerts, runbooks, `load-testing.md` (how a run shows up and how to turn it into 
 
 ## Prerequisites on the application side (not done here)
 
-| change                                        | where in `../cvhome`                                                                                             | why                                    |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| build the images (`./gradlew bootBuildImage`) | —                                                                                                                | the stack runs them; it never builds   |
-| Hikari pool size                              | `LOAD_POOL_SIZE` here (default: the flavour's `db_pool_size`, 3 on dev) — the app default is in `lcl-config.yml` | comparability with the Fargate default |
+| change                                        | where in `../cvhome`                                                                                                                                                   | why                                                                                |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| build the images (`./gradlew bootBuildImage`) | —                                                                                                                                                                      | the stack runs them; it never builds                                               |
+| Hikari pool size                              | `LOAD_POOL_SIZE` here (default: the flavour's `db_pool_size`, 3 on dev, or the service's own from `services.yaml`, catalog 8) — the app default is in `lcl-config.yml` | comparability with the Fargate default                                             |
+| `x-storefront-cache` on every storefront page | landing-ui's `start.mjs` page cache (cvhome `fix/load-bottlenecks`)                                                                                                    | `storefront_page_cache{state}` says which page views were renders and which copies |
 
 JVM metrics, Tomcat thread metrics, latency histograms, the SLI recording rules and the provisioned dashboards are in
 `../cvhome` (`extra/monitoring/`); `docs/prometheus.md` says how a run appears there and `make dash` opens it.

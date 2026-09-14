@@ -393,3 +393,16 @@ Chromium. The report: <https://claude.ai/code/artifact/e0fae0ef-299a-4bd9-a791-4
   - `after-sql-trace-mix-20260914T155016Z`: SQL per route. Search 89.5 → 8.4 ms, admin orders 42 → 3 statements,
     inventory bulk 21 → 2.
   - `after-warmup-browse-` and `after-warmup-mix-20260914T152842Z`: the warm-up.
+
+**What the next pass changes in the suite (this branch):**
+
+- `browser-storefront-spike` sends what a browser sends (`SHOPPER_TRAFFIC=browser`, the default): the document, and on
+  three home visits in ten the suggestions, the tree and the site. The after pass above sent every read landing-ui
+  makes beside each page (`SHOPPER_TRAFFIC=api`), which was 87 % of catalog's load under the spike from calls no
+  browser makes. Compare a run with the before pass only on the same setting.
+- `SPIKE_MODEL=rate` offers the spike as an arrival rate (`RATE`, 10× for the minute), so a faster storefront does not
+  turn into more load; the closed model stays the default and is what the numbers above were made with.
+- A Chromium visit ends when the document has parsed and the page's own assertion holds, not on `load`: the seeded
+  YouTube embed no longer fails a home visit, and cvhome's video facade loads the player on a press.
+- Every page view counts `storefront_page_cache{state}`, so a run says which of its page numbers were renders.
+- The stack runs catalog at its own pool of 8 (`services.yaml db_pool_size`, `stack/stack.sh sizes`).

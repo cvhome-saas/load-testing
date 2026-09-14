@@ -335,3 +335,24 @@ found; skip SQL pass`, exit 0.
   TTFB p75, API p95 and failed visits beside the threshold expressions of the run.
 - Seen: the three rows. The peak row read `17.94 s, -, -, 100%`: its TTFB and API had no finished visit, so they
   printed `-`, not 0.
+
+### 07.5 The spike's shoppers send what a browser sends, or an arrival rate, and every page view says what the cache did [not verified: the load stack ran main's images, which carry no page cache; `k6 inspect` of both models, `make selftest` on the clients]
+
+- Steps:
+  - `k6 inspect -e PROFILE=spike -e SPIKE_MODEL=rate -e RATE=60 k6/scripts/browser/storefront-spike.js`: `shoppers` is a
+    `ramping-arrival-rate` 60 → 600 → 60 a minute; without `SPIKE_MODEL` it is the `ramping-vus` shape of 07.3.
+  - `make browser-storefront-spike PROFILE=spike STORES=org1-store2 PEAK_VUS=10` (`SHOPPER_TRAFFIC=browser`, the
+    default): the HTTP shoppers fetch the document of each page and, on three home visits in ten, the suggestions,
+    the tree and the site (what the header's search box fetches); `SHOPPER_TRAFFIC=api` sends `browseVisit` as before.
+  - `SPIKE_MODEL=x` or `SHOPPER_TRAFFIC=x` fails at once naming the values.
+- Expect:
+  - The summary carries `storefront_page_cache{name,state}`: on a landing-ui with the page cache, the second view of a
+    page within 30 s is `hit`, then `stale`, then `hit` again once the cache refreshed it; a build without the cache
+    counts every view as `none`.
+  - A Chromium visit is done when the document has parsed and the page's own assertion holds (`main` visible, the
+    add-to-cart button); a home page whose YouTube embed takes 20 s to `load` no longer fails the visit.
+  - `stack/stack.sh sizes` prints a `pool` column: catalog 8, every other JVM the flavour's (dev 3), and
+    `LOAD_POOL_SIZE=5` puts 5 on all of them; `docker inspect` of a running catalog shows
+    `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=8`.
+- Seen: `k6 inspect` of both models as expected; `stack/stack.sh sizes` as expected; the stack was not restarted
+  (a peer session shares it) so the container's env and the cache states are not verified.

@@ -26,6 +26,8 @@ export const SCHEMA = {
   BROWSER_ITERATIONS:{ default: 0,   type: 'number', doc: 'browser iterations total (0 = derived from profile)' },
   BROWSER_SPIKE_VUS: { default: 0,   type: 'number', doc: 'browser-storefront-spike: Chromium VUs in the minute at 10x (0 = 3 x BROWSER_VUS)' },
   BROWSER_BLOCK_IMAGES:{ default: false, type: 'boolean', doc: 'abort image requests in the browser (MinIO 404s locally)' },
+  SPIKE_MODEL:       { default: 'vus',        doc: 'browser-storefront-spike load: vus (PEAK_VUS shoppers, closed) | rate (RATE visits per RATE_UNIT, open: the same offered load whatever the pages cost)' },
+  SHOPPER_TRAFFIC:   { default: 'browser',    doc: 'browser-storefront-spike load: browser (the document and what a browser then fetches) | api (the document plus every read landing-ui makes for it)' },
   SESSION_POOL:      { default: 4,   type: 'number', doc: 'seller sessions logged in at setup and shared by VUs' },
   SHOPPERS:          { default: 5,   type: 'number', doc: 'shopper accounts registered at setup for authenticated flows' },
   FIXTURE_CATEGORIES:{ default: 5,   type: 'number', doc: 'categories created in the k6- fixture store' },
