@@ -144,6 +144,11 @@ copy from `../cvhome-platform`, and `npm test` fails when it is stale.
   bottleneck on AWS), and the monitoring containers have no cap at all, so observing never becomes the bottleneck.
 - **Start-up is slower.** A JVM on a sixth of a core takes minutes to start, as it does on Fargate; `LOAD_WAIT`
   (900 s) is how long `make stack-up` waits for every `/actuator/health`.
+- **Logging is a Fargate task's.** The JVMs run the `lcl` profile, for its service discovery, but log at
+  `fargate-config.yml`'s levels: `com.asrevo` at INFO, Spring web and security at WARN. The `lcl` profile's DEBUG wrote
+  285 lines a request in checkout, 140 in tenancy and 128 in inventory, a stack trace from the locale interceptor on
+  most of them, and cost catalog a fifth of its cap in a 3× spike (`docs/baseline.md`, *Heavy spikes*).
+  `LOAD_LOG_LEVEL=DEBUG` brings it back for debugging; its numbers are not load numbers.
 
 Inside the network the platform's hostnames (`gateway.com`, `uaa.gateway.com`, `catalog.gateway.com`,
 `spg-507f1f77.gateway.com`, the demo store hosts) are container aliases, so spg, the JVMs and the storefront reach
@@ -153,7 +158,8 @@ each other by the names the config already uses; on the host the same names stil
 Knobs: `LOAD_FLAVOUR` (default `dev`), `LOAD_CPU_FACTOR` (default `0.45`), `LOAD_MEM` (unset: the flavour's sizes),
 `LOAD_POOL_SIZE` (Hikari maximum per service, default the flavour's `db_pool_size`, 10 with `off`), `LOAD_TAG` /
 `LOAD_REGISTRY` (which images), `JAVA_TOOL_OPTIONS`, `OTEL_SDK_DISABLED` (default `false`: everything exports to the
-collector), `LOAD_WAIT` (default 900 s), `LOAD_CDN` (default `true`: the storefront's static files come from MinIO).
+collector), `LOAD_WAIT` (default 900 s), `LOAD_CDN` (default `true`: the storefront's static files come from MinIO),
+`LOAD_LOG_LEVEL` (unset: Fargate's log levels; `DEBUG`: the `lcl` profile's).
 
 The storefront's static files come from a CDN, as on dev. landing-ui publishes its build's `/_next/static` to MinIO
 at boot (`minio-init` makes the public-read bucket), and a page points a browser at `http://localhost:9000/…`, as
