@@ -31,7 +31,8 @@ prom_url="${PROMETHEUS_URL:-$(python3 -c "import json,sys; print(json.load(open(
 out=()
 if [ -z "${NO_PROM:-}" ] && [ -n "$prom_url" ]; then
   export K6_PROMETHEUS_RW_SERVER_URL="$prom_url"
-  export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(95),p(99),avg,max,min}"
+  # p(75): Web Vitals are judged at p75 (thresholds.js, the Web Vitals panels)
+  export K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-p(75),p(95),p(99),avg,max,min}"
   # stale markers end every series the moment the run ends, which empties "last value" panels; off unless asked
   export K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-false}"
   out=(--out experimental-prometheus-rw)

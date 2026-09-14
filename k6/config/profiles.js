@@ -15,8 +15,10 @@ import { globalTags } from '../lib/core/tags.js';
 import { sloFor } from './thresholds.js';
 
 // The spike shape, both models: 30 s at base, 10 s up to 10×, 1 m at 10×, 10 s down, SPIKE.after at base. The spike has
-// ended at 1m50s; the recovery probe measures from 20 s later to the end.
-const SPIKE = { after: '2m', ends: '1m50s', recoveryFrom: '2m10s', recoveryFor: '1m40s', probeEvery: '3s' };
+// ended at 1m50s; the recovery probe measures from 20 s later to the end. A browser spike measures three windows of it:
+// the base before it, the minute at 10× (peakFrom, peakFor) and the same recovery window.
+const SPIKE = { after: '2m', ends: '1m50s', recoveryFrom: '2m10s', recoveryFor: '1m40s', probeEvery: '3s',
+  baseFor: '30s', peakFrom: '40s', peakFor: '1m' };
 
 function closed(exec, peak, profile) {
   switch (profile) {
@@ -89,6 +91,24 @@ export function recoveryProbe(exec) {
   };
 }
 
+/**
+ * Chromium shoppers through a spike (browser/storefront-spike.js), one scenario per window so the `scenario` tag splits
+ * every Web Vital by phase: `ui-base` (BROWSER_VUS before the spike), `ui-peak` (BROWSER_SPIKE_VUS during the minute
+ * at 10×), `ui-recovery` (BROWSER_VUS from 20 s after it to the end). A browser arriving while the load is being
+ * offered is measured; the load itself comes from protocol VUs, since a Chromium costs this machine a core while it
+ * renders. PROFILE=smoke: one visit.
+ */
+export function browserPhases(exec) {
+  const chromium = { browser: { type: 'chromium' } };
+  if (env.PROFILE === 'smoke') return { 'ui-base': { executor: 'per-vu-iterations', vus: 1, iterations: 1, maxDuration: '5m', exec, options: chromium } };
+  const during = (startTime, duration, vus) => ({ executor: 'constant-vus', vus, startTime, duration, gracefulStop: '30s', exec, options: chromium });
+  return {
+    'ui-base': during('0s', SPIKE.baseFor, env.BROWSER_VUS),
+    'ui-peak': during(SPIKE.peakFrom, SPIKE.peakFor, env.BROWSER_SPIKE_VUS || env.BROWSER_VUS * 3),
+    'ui-recovery': during(SPIKE.recoveryFrom, SPIKE.recoveryFor, env.BROWSER_VUS),
+  };
+}
+
 /** A browser scenario: few Chromium VUs, iteration count from the profile. */
 export function browserScenario(exec, knobs) {
   const k = knobs || {};
@@ -116,7 +136,8 @@ export function build(spec) {
     hosts: config.hosts,
     setupTimeout: '10m',
     teardownTimeout: '5m',
-    summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
+    // Web Vitals are judged at p75 (thresholds.js): a browser run's summary shows it
+    summaryTrendStats: ['avg', 'min', 'med'].concat(spec.layer === 'browser' ? ['p(75)'] : [], ['p(90)', 'p(95)', 'p(99)', 'max']),
     ext: { fixtures: { needs: spec.needs || [] } },
   }, spec.options || {});
   return opts;

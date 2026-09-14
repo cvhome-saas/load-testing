@@ -24,6 +24,7 @@ export const SCHEMA = {
   SIGNIN_RATE:       { default: 9,   type: 'number', doc: 'sign-in-burst: sign-ins per minute (9 = dev pace, under its 10/min limiter)' },
   BROWSER_VUS:       { default: 3,   type: 'number', doc: 'Chromium VUs in browser scripts' },
   BROWSER_ITERATIONS:{ default: 0,   type: 'number', doc: 'browser iterations total (0 = derived from profile)' },
+  BROWSER_SPIKE_VUS: { default: 0,   type: 'number', doc: 'browser-storefront-spike: Chromium VUs in the minute at 10x (0 = 3 x BROWSER_VUS)' },
   BROWSER_BLOCK_IMAGES:{ default: false, type: 'boolean', doc: 'abort image requests in the browser (MinIO 404s locally)' },
   SESSION_POOL:      { default: 4,   type: 'number', doc: 'seller sessions logged in at setup and shared by VUs' },
   SHOPPERS:          { default: 5,   type: 'number', doc: 'shopper accounts registered at setup for authenticated flows' },

@@ -55,6 +55,28 @@ export class Storefront {
     await assert.soft(this.page.locator('body')).toBeVisible();
   }
 
+  /**
+   * Type a term into the header's search box a key at a time, until catalog's suggestions answer: the storefront
+   * calling catalog from the browser (the first keystroke also fetches the category tree and the site for the
+   * navigation hits), and keystrokes for INP. False when no search box is visible: the store's layout can keep it out
+   * of the header (layout.search).
+   */
+  async suggest(term) {
+    const boxes = this.page.getByRole('combobox');
+    const count = await boxes.count();
+    let box = null;
+    for (let i = 0; i < count && !box; i += 1) {
+      if (await boxes.nth(i).isVisible()) box = boxes.nth(i);
+    }
+    if (!box) return false;
+    await this.settle();
+    await Promise.all([
+      this.page.waitForResponse(/\/catalog\/api\/v2\/products\/suggest\?/, { timeout: 20000 }),
+      box.pressSequentially(term, { delay: 120 }),
+    ]);
+    return true;
+  }
+
   async addToCart() {
     const button = byRole(this.page, sel.product.addToCart);
     await assert.soft(button).toBeEnabled();
