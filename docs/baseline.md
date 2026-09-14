@@ -406,3 +406,77 @@ Chromium. The report: <https://claude.ai/code/artifact/e0fae0ef-299a-4bd9-a791-4
   YouTube embed no longer fails a home visit, and cvhome's video facade loads the player on a press.
 - Every page view counts `storefront_page_cache{state}`, so a run says which of its page numbers were renders.
 - The stack runs catalog at its own pool of 8 (`services.yaml db_pool_size`, `stack/stack.sh sizes`).
+
+### Heavy spikes, third pass: the whole branch, images rebuilt (2026-09-14)
+
+Every image deleted and rebuilt from cvhome `fix/load-bottlenecks` at e1ef55ce0 (phases 1–20: the sequences, the
+per-store caches with the listing and search cached, the page cache's new rules, the video facade), tagged `:latest`;
+a fresh database; the stack from this branch, so catalog ran at its pool of 8. The same shapes as the two passes above,
+with `SHOPPER_TRAFFIC=api` on the 3× and 5× spikes so they compare with them, plus one 5× spike in browser traffic
+(`SHOPPER_TRAFFIC=browser`, the new default), then the mix at 20× and the SQL trace.
+
+| measure | before (main) | after (phases 1–15) | this pass (1–20) |
+| --- | --- | --- | --- |
+| 3×: requests answered / failed | 7,261 / 2.7 % | 19,101 / 12.9 % | 16,267 / 6.4 % |
+| 3×: home p50 / p95 | 7.1 s / 60 s | 3 ms / 154 ms | 5 ms / 379 ms |
+| 3×: product p50 / p95 | 5.3 s / 12.1 s | 3 ms / 6.1 s | 7 ms / 680 ms |
+| 3×: failed browser visits at the peak | 0 of 9 finished | 16 of 42 | 0 of 118 |
+| 3×: catalog peak / at its cap / 5xx | 79 % / 0 s / 0 | 98 % / 60 s / 2,755 | 96 % / 30 s / 210 |
+| 3×: inventory peak / at its cap / 5xx | 40 % / 0 s / 0 | 46 % / 0 s / 0 | 97 % / 30 s / 1,170 |
+| 5×: requests answered / failed | 8,689 / 4.4 % | 25,512 / 11.6 % | 19,288 / 6.2 % |
+| 5×: home p50 / p95 | 42.4 s / 60 s | 3 ms / 250 ms | 10 ms / 414 ms |
+| 5×: product p95 | 60 s | 6.0 s | 581 ms |
+| 5×: LCP p75 / TTFB p75 at the peak | 5.70 s / 4.66 s | 1.17 s / 481 ms | 1.28 s / 292 ms |
+| 5×: failed browser visits at the peak | 0 of 15 | 17 of 49 | 0 of 114 |
+| 5×: landing-ui CPU per page view / at its cap | 70 ms / 135 s | 7.4 ms / 0 s | 15.4 ms / 0 s |
+| 5×: catalog peak / at its cap / 5xx | 91 % / 15 s / 0 | 99 % / 45 s / 3,376 | 100 % / 30 s / 370 |
+| 5×: inventory peak / at its cap / 5xx | 40 % / 0 s / 0 | 54 % / 0 s / 0 | 97 % / 75 s / 1,408 |
+| 5× in browser traffic: requests / failed / checks | — | — | 19,509 / 0.34 % / 100 % |
+| 5× in browser traffic: failed visits / LCP p75 at the peak | — | — | 0 of 113 / 1.54 s |
+| 5× in browser traffic: page views / CPU per view / anyone at cap | — | — | 15,508 / 3.1 ms / nobody (spg 89 %) |
+| mix: requests answered / never started | 19,463 / 2,118 | 24,950 / 861 | 29,681 / 288 |
+| mix: failed storefront / admin | 7.9 % / 6.3 % | 18.5 % / 5.4 % | 7.6 % / 5.1 % |
+| mix: purchases failed / orders placed | 94 % / 13 | 81 % / 50 | 78 % / 65 |
+| mix: recovery p95 after the spike | 32.7 s | 121 ms | 17 ms |
+| mix: pool waits timed out, checkout / catalog | 849 / 0 | 48 / 3,893 | 120 / 2,094 |
+| mix: catalog at cap / checkout peak | 90 s / 32 % | 45 s / 94 %, 30 s | 45 s / 94 %, 60 s |
+| mix: cache hit ratio GROUP / PRODUCT / RELATED | — | 82 / 42 / 32 % | 92 / 56 / 55 % |
+| mix: cache hit ratio LISTING / SEARCH | — | uncached | 61 / 57 % |
+
+Runs: `after2-x3-storefront-spike-spike-20260914T201154Z`, `after2-x5-storefront-spike-spike-20260914T201628Z`, `after2-x5browser-storefront-spike-spike-20260914T202104Z`, `after2-rate60-production-mix-spike-20260914T202544Z`.
+
+**What the branch's last five phases changed:**
+
+- **The cart deadlock is gone.** The warm-up placed 30 orders and created every cart it tried (0 failed, against
+  76 of 91 in the pass above); checkout logged no `Unable to obtain isolated JDBC connection`. 38 sequences, no
+  `sm_sequencer`.
+- **Per-store eviction and the two new caches lifted catalog's hit ratios** in the mix from 82 / 42 / 32 % (group /
+  product / related) to 92 / 56 / 55 %, and the listing and search, uncached before, hit 61 / 57 %. catalog's 5xx
+  under the 5× spike fell from 3,376 to 370 and its time at the cap from 45 to 30 s; in the mix its pool timeouts
+  fell from 3,893 to 2,094. It is still at its cap for 30–45 s of every spike.
+- **The failure rate halved on the like-for-like spikes** (12.9 → 6.4 %, 11.6 → 6.2 %) and, in the mix, fell back
+  below the before pass (18.5 → 7.6 % on the storefront) with 19 % more requests answered and 65 orders.
+- **No browser visit failed in any window** of any run (0 of 118, 0 of 114, 0 of 113 at the peaks): the video
+  facade and the visit that ends on the document, together. LCP p75 at the 5× peak 1.28 s; TTFB p75 292 ms.
+- **The page cache served 93 % of the browser-traffic spike's 15,508 views** (13,817 hit, 1,405 stale, no miss:
+  the warm-up filled it), at 3.1 ms of landing-ui CPU a view, and nothing reached its cap: that spike, the shape a
+  real campaign has, passed with 0.34 % failed and every check green. In the mix: 3,137 hit, 983 stale, 12 miss,
+  87 bypass, 1 shared.
+- **The `detailed-products` stall is gone**: 5.4 ms server median (77 ms in the pass above), 5 statements.
+
+**Finding: inventory is the next wall, under the API-shaped spikes.** With catalog answering fast, the shoppers'
+direct `availability` calls landed on inventory: 97 % of its 0.25-vCPU cap, 30 and 75 s at it, 1,170 and 1,408 pool
+timeouts on its 3 connections, 866 and 924 × 500 to `inventory:availability`. It does not show in browser traffic
+(17 %): a real page's availability read is landing-ui's, once per render, and cached with the page. The fixes, in
+order: a short availability cache in inventory keyed by store and sku (seconds, stock is live), a pool of its own like
+catalog's, and the medium size in cvhome-platform.
+
+**Finding: the load generator was the ceiling in the API-shaped spikes.** The Mac's idle CPU bottomed at 0.7 % and
+0.3 % (12 % and 40 % in the pass above, 35–47 % before): three Chromiums, 300–500 VUs and the whole stack on one
+machine. The peak-window latencies of the 3× and 5× `api` runs are as much the host's as the stack's; the
+browser-traffic 5× (idle 0.7 % too, but 0.34 % failed) says the stack itself had room.
+
+**Still to watch:** checkout at 94 % of its cap for 60 s of the mix (placement is 27 statements and 277 ms server
+median; the recovery job and the outbox share its 3 connections); uaa at 1.6 s of CPU a sign-in, unchanged code; the
+stale share of the page cache under CPU pressure (43 % of the 3× spike's views were served stale while their refresh
+rendered, 9 % in browser traffic).
