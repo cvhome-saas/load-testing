@@ -323,3 +323,73 @@ What the application needs, by owner, easiest first. The report with the evidenc
   - raise `rds.db_pool_size` only after the transaction and open-in-view fixes.
 - **load-testing:** the browse journeys should send only what a browser sends. That changes every storefront baseline,
   so it is its own change.
+
+### Heavy spikes again, on the load fixes (2026-09-14)
+
+The three heavy runs above, repeated on cvhome `fix/load-bottlenecks` `406971d1e` (cvhome#359). Everything else is the
+same: the stack, dev's sizes at factor 0.45, Hikari's 3 connections, the warm-up, the gaps, org1-store2 and 3 / 9 / 3
+Chromium. The report: <https://claude.ai/code/artifact/e0fae0ef-299a-4bd9-a791-414be1dfccd4>.
+
+- **Images:** the 12 Spring services and landing-ui were rebuilt from that commit and tagged `:lb`
+  (`LOAD_TAG=lb LOAD_TAG_SPG=latest LOAD_TAG_CONSOLE_UI=latest LOAD_TAG_LANDING_UI=lb-arm64`). main's images stay
+  `:latest`. When the new images started, `schema.sql` added the 7 indexes and dropped the 8 duplicate uniques.
+- **Not included:** cvhome-platform#12 (uaa at 0.5 vCPU, catalog's pool of 8). The stack has one pool for every service.
+
+| run | shoppers or offered rate | failed | pages p50 / p95 | a browser at the peak | landing-ui | catalog | checkout |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `after-x3-storefront-spike-spike-20260914T153323Z` | 8 → 300 for a minute | 12.9 % | home 3 ms / 154 ms; product 3 ms / 6.1 s | LCP p75 1.51 s; 16 of 42 failed | peak 51 %, 9.7 ms a page | 98 %, 60 s at its cap; 2,755 × 500 | idle |
+| `after-x5-storefront-spike-spike-20260914T153819Z` | 13 → 500 for a minute | 11.6 % | home 3 ms / 250 ms; product 3 ms / 6.0 s | LCP p75 1.17 s, TTFB p75 481 ms; 17 of 49 failed | peak 47 %, 7.4 ms a page | 99 %, 45 s at its cap; 3,376 × 500 | idle |
+| `after-rate60-production-mix-spike-20260914T154314Z` | the normal day ×2, ×20 for a minute | 16.1 % | no page timed out; 336 × 500 | LCP p95 2.1 s | peak 55 %, never at its cap | 99 %, 45 s at its cap; 3,851 × 500 | 94 %, 30 s at its cap; **50 orders, 81 % of purchases failed** |
+
+**Finding: the storefront wall is gone.**
+
+- landing-ui never reached its cap. A page view cost 7–10 ms of Fargate CPU, where it used to cost 70–73 ms.
+- At 5×, the home median fell from 42 s to 3 ms. No page timed out.
+- A browser's LCP p75 at the peak fell from 5.70 s to 1.17 s.
+- In the mix, recovery p95 fell from 32.7 s to 121 ms: the spike left no backlog.
+
+**Finding: catalog is the wall now, mostly under the test's own calls.**
+
+- Faster pages let the shoppers loop faster. The 3× shoppers ran 1,115 journeys, not 318.
+- Every journey calls catalog's API directly. At 5×, those calls were 14,477 of catalog's 16,617 requests (87 %). They
+  were 45 % before. landing-ui made 1,680 backend calls in all, against 9,576.
+- Hikari gives up after 3 s now, so catalog answers 500 rather than queueing.
+- Its CPU per request fell:
+  - at 5×, 3.1 → 2.5 ms per answered request;
+  - at a normal day's load, 7.3 → 4.0 ms.
+- The storefront spikes' failure rates are therefore not like-for-like. The mix is, because it keeps a fixed arrival
+  rate: 28 % more requests answered, and 861 journeys never started, against 2,118.
+- The browse journeys sending only what a browser sends is now the first thing to fix in this repo.
+
+**Finding: checkout's table-generated ids take a second connection.**
+
+- In the warm-up, at a normal day's rate, 76 of 91 cart creations failed with `Unable to obtain isolated JDBC connection`.
+- The cause: Hibernate's `TableGenerator` refills its block of ids on a second pooled connection while the cart's
+  transaction holds the first. Three concurrent carts deadlock checkout's 3 connections.
+- The before pass's warm-up placed 0 orders for the same reason, which likely explains the 78 s gap above.
+- In the mix, checkout's pool timeouts fell from 849 to 48. Its 728 × 502 are catalog failing under it.
+- The fix is cvhome's: Postgres sequences for the 25 table-generated entities.
+
+**Finding: the home page's browser failures are YouTube.**
+
+- Every failed home visit timed out on its `load` event. Every request the browser recorded on those visits had finished
+  in under 25 ms.
+- With the stack idle, 9 home loads reached `load` in 13–26 s, and 2 of the 9 went past 30 s. With YouTube unreachable,
+  all 9 took 4.1 s.
+- The seeded home layout embeds a YouTube player in its first screen.
+- `browserVisit` should count a visit by LCP and a visible `main`, not by a third party's load event.
+
+**The database:**
+
+- Rows read by full scans per request fell:
+  - `catalog.product_image`: 623 → 84 (its new index served 2,598 lookups);
+  - `inventory.product_price`: 608 → 316 (its new index served 9,101 lookups).
+- The lineage, brand, type and URL indexes went unused on tables of 53–204 rows.
+- PostgreSQL peaked at 6 % of its CPU, against 11 % before.
+
+- **Measured the same way on both sides:** Hikari timeouts from the counter over each run's window. The 2,562 above
+  counted log lines across the container's life; the counter for that mix is 849.
+- **Other runs:**
+  - `after-sql-trace-mix-20260914T155016Z`: SQL per route. Search 89.5 → 8.4 ms, admin orders 42 → 3 statements,
+    inventory bulk 21 → 2.
+  - `after-warmup-browse-` and `after-warmup-mix-20260914T152842Z`: the warm-up.
