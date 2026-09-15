@@ -246,7 +246,7 @@ OTLP has them under its own spelling ([porting.md](porting.md)).
 ### Cache hit ratio
 
 - **Query.** `sum by (service_name, cache) (rate(cache_gets_total{result="hit"}[5m])) / sum by (service_name, cache) (rate(cache_gets_total[5m]))`.
-- **Target.** Depends on the cache; the `STORE` cache should be near 100 % in steady state.
+- **Target.** Depends on the region; `merchant.store-client` (the store record every product mapping and cart call reads) should be near 100 % in steady state, `catalog.product` and `content.site` above 80 % once warm. A region reads as `<service>.<read>` (cvhome `references/caching.md`).
 - **Shown.** Bottlenecks → *Cache hit ratio*, *Cache size and evictions*.
 - **Porting.** Micrometer `cache.*`.
 
