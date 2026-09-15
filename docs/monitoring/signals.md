@@ -102,15 +102,16 @@ Switch: OTel starter default; Micrometer's duplicate JVM set is off (`management
 
 Switch: `server.tomcat.mbeanregistry.enabled: true` (`common-config.yml`); collector no longer drops `tomcat.*`/`executor.*`.
 
-### Caches — Micrometer (Spring cache abstraction over Caffeine)
+### Caches — Micrometer (the cvhome cache library, `store-commons:cache`)
 
 | Prometheus name | labels | meaning |
 | --- | --- | --- |
-| `cache_gets_total` | `cache`, `result` (`hit`/`miss`) | reads |
+| `cache_gets_total` | `cache` (the region, `<service>.<read>`: `catalog.product`, `content.site`, `merchant.store-client`), `result` (`hit`/`miss`) | reads |
 | `cache_size`, `cache_evictions_total`, `cache_puts_total` | `cache` | size and churn |
 
-Switch: `spring.cache.caffeine.spec: recordStats` (`common-config.yml`). Hand-built Caffeine caches
-(`StoreEntitlements`, `MerchantStoreOrgOwner`, secret-crypto) are not covered.
+Every region a service declares is bound at start-up, whatever its provider; `cache_evictions_total` counts the
+provider's own evictions, not a store's eviction on commit (a version bump). Hand-built Caffeine caches
+(`StoreEntitlements`, secret-crypto, sso) are not covered until they move onto the library.
 
 ### cvhome's own meters
 
@@ -201,7 +202,7 @@ every request and every scheduled task.
 | Micrometer → OTLP path | `common-config.yml` | `otel.instrumentation.micrometer.enabled: true`, `management.otlp.metrics.export.enabled: false` |
 | latency buckets | `common-config.yml` | `management.metrics.distribution.slo.http.server.requests` |
 | Tomcat meters | `common-config.yml` | `server.tomcat.mbeanregistry.enabled: true` |
-| cache meters | `common-config.yml` | `spring.cache.caffeine.spec: recordStats` |
+| cache meters | always on | every declared region (`com.asrevo.cvhome.cache`, cvhome `references/caching.md`) |
 | outbox meters | each service's `application.yml` | `cvhome.metrics.outbox.enabled/table` |
 | span-name hygiene | `landing-ui/storefront/src/shell/telemetry.ts`, collector `transform/span_names` | — |
 | what the collector keeps | collector `filter/drop_metrics` | drops `spring.*`, `disk.*`, `logback.*`, `tasks.*`, `processedLogs.*`, and `nodejs.*` / `v8js.*` except the event-loop delay p99 and utilisation and the heap used and limit |

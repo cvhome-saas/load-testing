@@ -71,7 +71,7 @@ The general path, whatever the symptom:
 
 - **See.** JVM & Runtime → *GC pause share* > 5 %, *Heap after GC vs limit* rising through a soak; alert `CvhomeGcPressure`.
 - **Drill.** *Heap used by pool*: which pool grows (Old Gen = retained objects). Bottlenecks → *Cache size and evictions*: an unbounded cache. Auth → sessions count (gateway) growing without logins ending.
-- **Usual causes.** The `STORE` Caffeine cache without a maximum size; gateway sessions never expiring under a login-heavy test; a static map keyed by request.
+- **Usual causes.** A cache region without a maximum size (every region declares one; configuration can raise it); gateway sessions never expiring under a login-heavy test; a static map keyed by request.
 - **Fix.** A heap dump (`/actuator/heapdump` — not on uaa, whose actuator is narrowed on purpose) and the dominator tree; then a bounded cache or a shorter session.
 
 ## Request threads saturated
