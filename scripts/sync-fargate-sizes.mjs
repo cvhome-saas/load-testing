@@ -84,6 +84,8 @@ function readServices(file) {
     if (l.indent === 0) { service = null; continue; }
     if (l.indent === 2 && l.value === '') { service = {name: l.key}; services[l.key] = service; continue; }
     if (service && l.indent === 4 && (l.key === 'size' || l.key === 'runtime')) service[l.key] = l.value;
+    // A service may take a pool of its own (catalog 8) over the flavour's rds.db_pool_size.
+    if (service && l.indent === 4 && l.key === 'db_pool_size') service.dbPoolSize = Number(l.value);
   }
   return Object.values(services).filter((s) => s.size);
 }
@@ -95,7 +97,8 @@ function build(dir) {
   if (services.length === 0) throw new Error('services.yaml: no service with a size found');
   const out = {
     _generated: 'by scripts/sync-fargate-sizes.mjs from cvhome-platform flavours.yaml + services.yaml; do not edit',
-    _units: 'cpu in Fargate CPU units (1024 = 1 vCPU), memory in MiB; postgres is the flavour\'s RDS instance class',
+    _units: 'cpu in Fargate CPU units (1024 = 1 vCPU), memory in MiB; postgres is the flavour\'s RDS instance class; '
+    + 'dbPoolSize is the flavour\'s Hikari pool, and a service\'s own where services.yaml gives it one',
     flavours: {},
   };
   for (const [name, f] of Object.entries(flavours)) {
@@ -106,6 +109,7 @@ function build(dir) {
       const size = f.sizes[s.size];
       if (!size) throw new Error(`flavours.yaml ${name}: no size "${s.size}" (services.yaml ${s.name})`);
       entry.services[s.name] = {size: s.size, cpu: size.cpu, memory: size.memory};
+      if (s.dbPoolSize) entry.services[s.name].dbPoolSize = s.dbPoolSize;
     }
     entry.services.postgres = {size: f.rds.instanceClass, cpu: rds.cpu, memory: rds.memory};
     out.flavours[name] = entry;

@@ -5,6 +5,14 @@
  */
 import { get } from '../core/http.js';
 import { config } from '../core/env.js';
+import { storefrontPageCache } from '../core/metrics.js';
+
+/** Counts what landing-ui's page cache did with the page (`x-storefront-cache`; `none` from a build without it). */
+function counted(page) {
+  storefrontPageCache.add(1, { name: page.res.request && page.res.request.tags ? page.res.request.tags.name : 'page',
+    state: page.res.headers['X-Storefront-Cache'] || 'none' });
+  return page;
+}
 
 export class StorefrontPagesClient {
   constructor(edge, lang) {
@@ -13,14 +21,16 @@ export class StorefrontPagesClient {
     this.lang = lang || config.lang;
   }
 
-  home() { return get(this.edge, '', `/${this.lang}`, { name: 'page:home' }); }
-  category(slug, expect) { return get(this.edge, '', `/${this.lang}/category/${slug}`, { name: 'page:category', expect }); }
-  product(slug, expect) { return get(this.edge, '', `/${this.lang}/product/${slug}`, { name: 'page:product', expect }); }
-  search(q) { return get(this.edge, '', `/${this.lang}/search`, { name: 'page:search', params: { q } }); }
-  checkout() { return get(this.edge, '', `/${this.lang}/checkout`, { name: 'page:checkout' }); }
-  login() { return get(this.edge, '', `/${this.lang}/login`, { name: 'page:login', params: { auth: 1 } }); }
-  register() { return get(this.edge, '', `/${this.lang}/register`, { name: 'page:register' }); }
-  content(slug, expect) { return get(this.edge, '', `/${this.lang}/content/${slug}`, { name: 'page:content', expect }); }
-  blog() { return get(this.edge, '', `/${this.lang}/blog`, { name: 'page:blog' }); }
-  help() { return get(this.edge, '', `/${this.lang}/help`, { name: 'page:help' }); }
+  page(path, opts) { return counted(get(this.edge, '', `/${this.lang}${path}`, opts)); }
+
+  home() { return this.page('', { name: 'page:home' }); }
+  category(slug, expect) { return this.page(`/category/${slug}`, { name: 'page:category', expect }); }
+  product(slug, expect) { return this.page(`/product/${slug}`, { name: 'page:product', expect }); }
+  search(q) { return this.page('/search', { name: 'page:search', params: { q } }); }
+  checkout() { return this.page('/checkout', { name: 'page:checkout' }); }
+  login() { return this.page('/login', { name: 'page:login', params: { auth: 1 } }); }
+  register() { return this.page('/register', { name: 'page:register' }); }
+  content(slug, expect) { return this.page(`/content/${slug}`, { name: 'page:content', expect }); }
+  blog() { return this.page('/blog', { name: 'page:blog' }); }
+  help() { return this.page('/help', { name: 'page:help' }); }
 }

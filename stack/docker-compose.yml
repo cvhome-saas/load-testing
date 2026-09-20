@@ -33,6 +33,12 @@ x-shape: &shape
 
 x-java-env: &java-env
   SPRING_PROFILES_ACTIVE: lcl,test-stores
+  # The log levels a Fargate task runs at (cvhome fargate-config.yml), over lcl's DEBUG for com.asrevo and Spring web
+  # and security: at DEBUG, checkout wrote 285 lines a request and inventory 128 while holding their connections
+  # (heavy-rate60-production-mix-spike-20260914T093713Z). LOAD_LOG_LEVEL=DEBUG brings lcl's levels back.
+  LOGGING_LEVEL_COM_ASREVO: ${LOAD_LOG_LEVEL:-INFO}
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: ${LOAD_LOG_LEVEL:-WARN}
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: ${LOAD_LOG_LEVEL:-WARN}
   # Every JVM exports to the collector unless told otherwise; a load stack without telemetry has nothing to read.
   OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
   INFO_STACK_NAME: load
@@ -59,7 +65,6 @@ x-java-env: &java-env
       "spring.cloud.discovery.client.simple.instances.inventory[0].uri": "http://inventory:8126",
       "spring.cloud.discovery.client.simple.instances.landing-ui[0].uri": "http://landing-ui:8110",
       "spring.datasource.url": "jdbc:postgresql://postgres:5432/cvhome",
-      "spring.datasource.hikari.maximum-pool-size": ${LOAD_POOL_SIZE:-10},
       "com.asrevo.cvhome.cdn.storage.s3-url": "http://minio:9000",
       "com.asrevo.cvhome.pods[0].id": "507f1f77bcf86cd799439011",
       "com.asrevo.cvhome.pods[0].name": "pod-507f1f77",
@@ -267,6 +272,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-core/uaa:${LOAD_TAG_UAA:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_UAA:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8001:8001"
     networks:
@@ -279,6 +286,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-core/store-core-gateway:${LOAD_TAG_STORE_CORE_GATEWAY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_STORE_CORE_GATEWAY:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8000:8000"
     networks:
@@ -293,6 +302,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-core/tenancy:${LOAD_TAG_TENANCY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_TENANCY:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8020:8020"
   billing:
@@ -301,6 +312,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-core/billing:${LOAD_TAG_BILLING:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_BILLING:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8021:8021"
   pod-registry:
@@ -309,6 +322,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-core/pod-registry:${LOAD_TAG_POD_REGISTRY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_POD_REGISTRY:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8022:8022"
   console-ui:
@@ -327,6 +342,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/merchant:${LOAD_TAG_MERCHANT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_MERCHANT:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8120:8120"
     networks:
@@ -339,6 +356,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/content:${LOAD_TAG_CONTENT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_CONTENT:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8121:8121"
     networks:
@@ -351,6 +370,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/catalog:${LOAD_TAG_CATALOG:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_CATALOG:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8122:8122"
     networks:
@@ -363,6 +384,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/checkout:${LOAD_TAG_CHECKOUT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_CHECKOUT:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8123:8123"
     networks:
@@ -375,6 +398,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/cua:${LOAD_TAG_CUA:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_CUA:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8124:8124"
     networks:
@@ -387,6 +412,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/payment:${LOAD_TAG_PAYMENT:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_PAYMENT:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8125:8125"
     networks:
@@ -399,6 +426,8 @@ services:
     image: ${LOAD_REGISTRY:-}store-pod/inventory:${LOAD_TAG_INVENTORY:-${LOAD_TAG:-latest}}
     environment:
       <<: *java-env
+      # Hikari's pool: the service's own (services.yaml db_pool_size) or the flavour's; stack.sh exports both.
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: ${LOAD_POOL_SIZE_INVENTORY:-${LOAD_POOL_SIZE:-10}}
     ports:
       - "8126:8126"
     networks:

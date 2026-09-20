@@ -4,9 +4,10 @@
  * beside each page. landing-ui makes those reads itself while it renders, so one page view here is one render — the
  * unit landing-ui's capacity is counted in.
  */
+import { sleep } from 'k6';
 import { storefrontEdge } from '../../core/edges.js';
 import { journey } from '../../core/metrics.js';
-import { StorefrontPagesClient } from '../../clients/index.js';
+import { CatalogClient, ContentClient, StorefrontPagesClient } from '../../clients/index.js';
 import { randomOf } from './data.js';
 
 /** One page of the mix: [['home', 0.25], ...] from k6/config/mix.js. */
@@ -27,5 +28,39 @@ export function pageView(store, data, page) {
     if (page === 'category') return pages.category(randomOf(data.categories)).ok;
     if (page === 'product') return pages.product(randomOf(data.productSlugs)).ok;
     return pages.search(randomOf(data.searchTerms)).ok;
+  });
+}
+
+/**
+ * One shopper's visit as a browser makes it: the document of each page, and on the home page a term typed into the
+ * search box, which fetches the suggestions, the category tree and the site from the browser (the same three calls
+ * the Chromium journey records). Nothing else: landing-ui makes a page's other reads itself, and its page cache
+ * answers a repeated page without any. `browseVisit` in browse.js sends every read beside each page, which in the
+ * 2026-09-14 re-run was 87 % of catalog's load under the spike, from calls no browser makes.
+ */
+export function browserLikeVisit(store, data) {
+  pageView(store, data, 'home');
+  if (Math.random() < 0.3) typedInSearchBox(store, data);
+  sleep(1 + Math.random() * 2);
+  pageView(store, data, 'category');
+  sleep(1 + Math.random() * 2);
+  pageView(store, data, 'product');
+  sleep(1 + Math.random() * 3);
+  if (Math.random() < 0.3) {
+    pageView(store, data, 'search');
+    sleep(1 + Math.random());
+  }
+}
+
+/** What the header's search box fetches as a shopper types: the suggestions, and on the first keystroke the tree and the site. */
+export function typedInSearchBox(store, data) {
+  return journey('typed', () => {
+    const edge = storefrontEdge(store);
+    const catalog = new CatalogClient(edge);
+    const term = randomOf(data.searchTerms);
+    let ok = catalog.categoryHierarchy(20).ok;
+    ok = new ContentClient(edge).site().ok && ok;
+    ok = catalog.suggest(term.slice(0, 3), 8).ok && ok;
+    return ok;
   });
 }

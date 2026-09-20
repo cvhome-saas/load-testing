@@ -18,10 +18,16 @@ export class Storefront {
     return `${this.store.url}/${this.lang}${path || ''}`;
   }
 
-  /** Open a page: one document, one landing-ui render, counted for the verdict's CPU per page view. */
+  /**
+   * Open a page: one document, one landing-ui render, counted for the verdict's CPU per page view. The navigation
+   * is done once the document has parsed; what the shopper then waits for is each page's own assertion (a visible
+   * `main`, the add-to-cart button), and the Web Vitals say when it painted. Waiting for `load` instead made every
+   * home visit wait for a third party: the seeded YouTube embed's `load` came 13–26 s after the document with the
+   * stack idle, and all of the home page's failed visits in the 2026-09-14 re-run were that.
+   */
   async visit(path) {
     browserPageViews.add(1);
-    return this.page.goto(this.url(path));
+    return this.page.goto(this.url(path), { waitUntil: 'domcontentloaded' });
   }
 
   /** k6-testing has no toHaveURL: poll the page URL ourselves, throw like a failed assertion would. */

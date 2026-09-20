@@ -23,6 +23,9 @@ export const domainLookups = new Counter('domain_lookups');
 export const browserErrors = new Counter('browser_errors');
 // Documents a browser opened: each is one landing-ui render, which the verdict counts next to the HTTP page views.
 export const browserPageViews = new Counter('browser_page_views');
+// What landing-ui's page cache did with each page view (its x-storefront-cache header: hit, miss, stale, stale-refresh,
+// shared, bypass), so a run says which of its page numbers are renders and which are copies.
+export const storefrontPageCache = new Counter('storefront_page_cache');
 export const planLimitHits = new Counter('plan_limit_hits');
 
 /** Time and grade one journey. `ok` is the AND of every step. */
