@@ -38,10 +38,19 @@ where the bugs are).
 
 - Setup: `npm ci`.
 - Steps: `npm test` (or `scripts/verify.sh`); then `ls build/k6/local/`.
-- Expect: npm audit at `high`, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
+- Expect: `scripts/audit.mjs` (npm audit at `high`, minus its allow-list) prints each allowed advisory and passes, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
   `make build` all pass; `build/k6/local/` holds one `.tar` archive per script mirroring `k6/scripts/`. A missing
   `shellcheck`/`actionlint` prints `! <tool> not installed; skipping` and passes locally; with `CI=true` it fails.
   `scripts/verify.sh` ends with a receipt line and `git push` is then allowed for that exact tree.
+
+### 01.3 the package gate allows only the advisories it lists [verified 2026-10-18: passes with GHSA-vfj7-8cjw-p6xm allowed; fails naming braces with the entry removed; fails naming the stale id with a made-up one]
+
+- Why: `npm audit` cannot accept one advisory, and braces' GHSA-vfj7-8cjw-p6xm has no patched release, so every push
+  and CI run failed on it
+- Steps: `node scripts/audit.mjs`; then delete the GHSA-vfj7-8cjw-p6xm entry and run it again; then replace the id
+  with a made-up one and run it again
+- Expect: first run prints `allowed GHSA-vfj7-8cjw-p6xm` and exits 0; second prints the braces advisory and exits 1;
+  third prints `no longer reported; remove it` for the made-up id and exits 1
 
 ## 02 — is the target up
 

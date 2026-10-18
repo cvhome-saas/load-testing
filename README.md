@@ -128,7 +128,8 @@ local stack:
 ## GitHub Actions
 
 `Check` runs for pull requests, pushes to `main`, and manual dispatches. It checks the shell and JSON files,
-audits the locked npm packages, runs ESLint, Prettier, Markdownlint, ShellCheck, and actionlint, resolves every
+audits the locked npm packages (`scripts/audit.mjs`: `npm audit` at high, minus a short allow-list of advisories with
+no patched release), runs ESLint, Prettier, Markdownlint, ShellCheck, and actionlint, resolves every
 k6 import with `make inspect`, and builds an archive for every test script. An archive bakes in the deployment
 file it was built for (`make build TARGET=<name>` writes `build/k6/<name>/…`; run one with
 `k6 run -e TARGET=<name> <archive>`) because `k6 archive` reads no shell environment at init. Use the same complete
