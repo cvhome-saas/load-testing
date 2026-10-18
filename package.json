@@ -19,7 +19,7 @@
     "lint": "eslint k6",
     "lint:fix": "eslint k6 --fix",
     "markdown:check": "markdownlint-cli2 README.md 'docs/**/*.md'",
-    "packages:check": "npm audit --audit-level=high",
+    "packages:check": "node scripts/audit.mjs",
     "shell:check": "scripts/with-tool.sh shellcheck bin/k6run scripts/*.sh stack/stack.sh",
     "sizes:check": "node scripts/sync-fargate-sizes.mjs --check",
     "test": "npm run check"
@@ -28,7 +28,7 @@
     "@eslint/js": "10.0.1",
     "eslint": "10.10.0",
     "globals": "17.12.0",
-    "markdownlint-cli2": "0.23.2",
+    "markdownlint-cli2": "0.23.3",
     "prettier": "3.9.6"
   },
   "overrides": {

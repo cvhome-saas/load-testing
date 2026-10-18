@@ -38,10 +38,19 @@ where the bugs are).
 
 - Setup: `npm ci`.
 - Steps: `npm test` (or `scripts/verify.sh`); then `ls build/k6/local/`.
-- Expect: npm audit at `high`, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
+- Expect: `scripts/audit.mjs` (npm audit at `high`, minus its allow-list) prints each allowed advisory and passes, ESLint, Prettier, Markdownlint, ShellCheck, actionlint, `make inspect` and
   `make build` all pass; `build/k6/local/` holds one `.tar` archive per script mirroring `k6/scripts/`. A missing
   `shellcheck`/`actionlint` prints `! <tool> not installed; skipping` and passes locally; with `CI=true` it fails.
   `scripts/verify.sh` ends with a receipt line and `git push` is then allowed for that exact tree.
+
+### 01.3 the package gate allows only the advisories it lists [verified 2026-10-18: passes with GHSA-vfj7-8cjw-p6xm allowed; fails naming braces with the entry removed; fails naming the stale id with a made-up one]
+
+- Why: `npm audit` cannot accept one advisory, and braces' GHSA-vfj7-8cjw-p6xm has no patched release, so every push
+  and CI run failed on it
+- Steps: `node scripts/audit.mjs`; then delete the GHSA-vfj7-8cjw-p6xm entry and run it again; then replace the id
+  with a made-up one and run it again
+- Expect: first run prints `allowed GHSA-vfj7-8cjw-p6xm` and exits 0; second prints the braces advisory and exits 1;
+  third prints `no longer reported; remove it` for the made-up id and exits 1
 
 ## 02 — is the target up
 
@@ -175,9 +184,9 @@ found; skip SQL pass`, exit 0.
 - Steps: edit a dashboard JSON by hand; `make monitoring-check`
 - Expect: `build-dashboards.mjs --check` fails naming the file; regenerating from the spec makes it pass; promtool rule tests and the collector `validate` pass
 
-### 05.6 Every infra and monitoring image still pulls from its registry [verified 2026-09-12: all seven pulled; minio from quay.io started under the stack's own definition, 1 GiB limit, bucket created]
+### 05.6 Every infra and monitoring image still pulls from its registry [verified 2026-10-18: all seven pulled; minio from bitnamilegacy started under the stack's own definition as root, 1 GiB limit, cluster ready; minio-init's mc created the bucket]
 
-- Why: an image the stack does not build can vanish from its registry. Docker Hub stopped serving `minio/minio` (an anonymous manifest fetch answers 401), so `make stack-up` failed on any host without it cached; the stack now pulls the same release from `quay.io/minio/minio`, with the same index digest (`sha256:13582eff…d883`) and the same pin as cvhome's `docker-compose-lcl.yml`
+- Why: an image the stack does not build can vanish from its registry. Docker Hub stopped serving `minio/minio` (an anonymous manifest fetch answers 401), then quay.io withdrew anonymous pulls too, so `make stack-up` failed on any host without it cached; the stack now pulls `bitnamilegacy/minio:2025.4.22`, Bitnami's frozen archive, with the same pin as cvhome's `docker-compose-lcl.yml`. It runs as root because the image's uid 1001 cannot write `/data`
 - Steps: `docker compose -p cvhome-load-verify -f stack/docker-compose.yml pull postgres minio otel-collector loki tempo prometheus grafana`; then, with nothing on port 9000 needed, `docker compose -p cvhome-load-verify -f stack/docker-compose.yml run -d --rm --no-deps --name cvhome-load-verify-minio minio` and `docker exec cvhome-load-verify-minio sh -c 'mc alias set local http://localhost:9000 minioadmin minioadmin && mc ready local'`; finally `docker rm -f cvhome-load-verify-minio` and `docker compose -p cvhome-load-verify -f stack/docker-compose.yml down -v`
 - Expect: every pull ends `Pulled`; MinIO reports `The cluster 'local' is ready`; nothing named `cvhome-load-verify*` left behind
 - Not covered: the platform's own images (`store-core/*`, `store-pod/*`), which are a local pre-step or come from `LOAD_REGISTRY`
